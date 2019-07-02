@@ -27,24 +27,25 @@ import (
 	_ "github.com/knative/serving/pkg/client/injection/informers/serving/v1alpha1/route/fake"
 	_ "github.com/knative/serving/pkg/client/injection/informers/serving/v1alpha1/service/fake"
 
-	duckv1beta1 "knative.dev/pkg/apis/duck/v1beta1"
-	"knative.dev/pkg/configmap"
-	"knative.dev/pkg/controller"
-	logtesting "knative.dev/pkg/logging/testing"
 	"github.com/knative/serving/pkg/apis/serving/v1alpha1"
 	"github.com/knative/serving/pkg/apis/serving/v1beta1"
 	"github.com/knative/serving/pkg/reconciler"
 	"github.com/knative/serving/pkg/reconciler/service/resources"
+
 	presources "github.com/knative/serving/pkg/resources"
+	duckv1beta1 "knative.dev/pkg/apis/duck/v1beta1"
+	"knative.dev/pkg/configmap"
+	"knative.dev/pkg/controller"
+	logtesting "knative.dev/pkg/logging/testing"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgotesting "k8s.io/client-go/testing"
 
-	. "knative.dev/pkg/reconciler/testing"
 	. "github.com/knative/serving/pkg/reconciler/testing/v1alpha1"
 	. "github.com/knative/serving/pkg/testing/v1alpha1"
+	. "knative.dev/pkg/reconciler/testing"
 )
 
 // This is heavily based on the way the OpenShift Ingress controller tests its reconciliation method.
@@ -317,6 +318,85 @@ func TestReconcile(t *testing.T) {
 			},
 			Name:  "release-nr",
 			Patch: []byte(reconciler.ForceUpgradePatch),
+		}},
+		WantEvents: []string{
+			Eventf(corev1.EventTypeNormal, "Updated", "Updated Service %q", "release-nr"),
+		},
+	}, {
+		Name: "release - service's RoutesReady should change from Unknown to False when route's status is Ready False",
+		Objects: []runtime.Object{
+			// The service starts out with "RoutesReady" == "Unknown"
+			Service("release-nr", "foo", WithReleaseRollout("release-nr-00002")),
+			config("release-nr", "foo", WithReleaseRollout("release-nr-00002"),
+				WithLatestCreated("release-nr-00002"),
+				WithLatestReady("release-nr-00002")),
+
+			// The route's Ready status is false
+			route("release-nr", "foo", WithReleaseRollout("release-nr-00002"), RouteReady,
+				WithURL, WithAddress, WithInitRouteConditions,
+				WithRouteGeneration(1),
+				WithStatusTraffic(v1alpha1.TrafficTarget{
+					TrafficTarget: v1beta1.TrafficTarget{
+						Tag:          v1alpha1.CurrentTrafficTarget,
+						RevisionName: "release-nr-00002",
+						Percent:      100,
+					},
+				}, v1alpha1.TrafficTarget{
+					TrafficTarget: v1beta1.TrafficTarget{
+						Tag:          v1alpha1.LatestTrafficTarget,
+						RevisionName: "release-nr-00002",
+						Percent:      0,
+					},
+				}), MarkTrafficAssigned, MarkIngressNotReady),
+		},
+		Key: "foo/release-nr",
+		WantStatusUpdates: []clientgotesting.UpdateActionImpl{{
+			Object: Service("release-nr", "foo",
+				WithReleaseRollout("release-nr-00002"),
+				WithFailedRoute("release-nr-00002", ""),
+				// After reconciliation, the service's "RoutesReady" should be updated to "False"
+				WithServiceStatusRouteFalse,
+				WithReadyConfig("release-nr-00002"),
+				WithSvcStatusDomain, WithSvcStatusAddress,
+				WithSvcStatusTraffic(v1alpha1.TrafficTarget{
+					TrafficTarget: v1beta1.TrafficTarget{
+						Tag:          v1alpha1.CurrentTrafficTarget,
+						RevisionName: "release-nr-00002",
+						Percent:      100,
+					},
+				}, v1alpha1.TrafficTarget{
+					TrafficTarget: v1beta1.TrafficTarget{
+						Tag:          v1alpha1.LatestTrafficTarget,
+						RevisionName: "release-nr-00002",
+						Percent:      0,
+					},
+				})),
+		}},
+		WantPatches: []clientgotesting.PatchActionImpl{{
+			ActionImpl: clientgotesting.ActionImpl{
+				Namespace: "foo",
+			},
+			Name:  "release-nr",
+			Patch: []byte(reconciler.ForceUpgradePatch),
+		}},
+		WantUpdates: []clientgotesting.UpdateActionImpl{{
+			Object: route("release-nr", "foo", WithReleaseRollout("release-nr-00002"), RouteReady,
+				WithURL, WithAddress, WithInitRouteConditions,
+				WithRouteGeneration(1),
+				WithRouteObservedGeneration(1),
+				WithStatusTraffic(v1alpha1.TrafficTarget{
+					TrafficTarget: v1beta1.TrafficTarget{
+						Tag:          v1alpha1.CurrentTrafficTarget,
+						RevisionName: "release-nr-00002",
+						Percent:      100,
+					},
+				}, v1alpha1.TrafficTarget{
+					TrafficTarget: v1beta1.TrafficTarget{
+						Tag:          v1alpha1.LatestTrafficTarget,
+						RevisionName: "release-nr-00002",
+						Percent:      0,
+					},
+				}), MarkTrafficAssigned, MarkIngressNotReady),
 		}},
 		WantEvents: []string{
 			Eventf(corev1.EventTypeNormal, "Updated", "Updated Service %q", "release-nr"),
@@ -606,10 +686,10 @@ func TestReconcile(t *testing.T) {
 		Name: "release - route and config ready, propagate ready, percentage set",
 		Objects: []runtime.Object{
 			Service("release-ready", "foo",
-				WithReleaseRolloutAndPercentage(58, /*candidate traffic percentage*/
+				WithReleaseRolloutAndPercentage(58, //candidate traffic percentage
 					"release-ready-00001", "release-ready-00002"), WithInitSvcConditions),
 			route("release-ready", "foo",
-				WithReleaseRolloutAndPercentage(58, /*candidate traffic percentage*/
+				WithReleaseRolloutAndPercentage(58, //candidate traffic percentage
 					"release-ready-00001", "release-ready-00002"),
 				RouteReady, WithURL, WithAddress, WithInitRouteConditions,
 				WithStatusTraffic(v1alpha1.TrafficTarget{
@@ -639,7 +719,7 @@ func TestReconcile(t *testing.T) {
 		Key: "foo/release-ready",
 		WantStatusUpdates: []clientgotesting.UpdateActionImpl{{
 			Object: Service("release-ready", "foo",
-				WithReleaseRolloutAndPercentage(58, /*candidate traffic percentage*/
+				WithReleaseRolloutAndPercentage(58, //candidate traffic percentage
 					"release-ready-00001", "release-ready-00002"),
 				// The delta induced by the config object.
 				WithReadyConfig("release-ready-00002"),
@@ -682,7 +762,7 @@ func TestReconcile(t *testing.T) {
 	}, {
 		Name: "release - create route and service and percentage",
 		Objects: []runtime.Object{
-			Service("release-with-percent", "foo", WithReleaseRolloutAndPercentage(10, /*candidate traffic percentage*/
+			Service("release-with-percent", "foo", WithReleaseRolloutAndPercentage(10, //candidate traffic percentage
 				"release-with-percent-00001", "release-with-percent-00002")),
 		},
 		Key: "foo/release-with-percent",
@@ -1138,7 +1218,7 @@ func TestReconcile(t *testing.T) {
 					},
 				}), MarkTrafficAssigned, MarkIngressReady),
 			config("config-only-ready", "foo", WithRunLatestRollout,
-				WithGeneration(2 /*will generate revision -00002*/), WithObservedGen,
+				WithGeneration(2), WithObservedGen,
 				// These turn a Configuration to Ready=true
 				WithLatestCreated("config-only-ready-00002"), WithLatestReady("config-only-ready-00002")),
 		},
@@ -1402,6 +1482,17 @@ func RouteReady(cfg *v1alpha1.Route) {
 			Conditions: duckv1beta1.Conditions{{
 				Type:   "Ready",
 				Status: "True",
+			}},
+		},
+	}
+}
+
+func RouteReadyFalse(cfg *v1alpha1.Route) {
+	cfg.Status = v1alpha1.RouteStatus{
+		Status: duckv1beta1.Status{
+			Conditions: duckv1beta1.Conditions{{
+				Type:   "Ready",
+				Status: "False",
 			}},
 		},
 	}

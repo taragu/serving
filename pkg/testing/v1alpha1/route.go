@@ -20,9 +20,6 @@ import (
 	"fmt"
 	"time"
 
-	"knative.dev/pkg/apis"
-	duckv1alpha1 "knative.dev/pkg/apis/duck/v1alpha1"
-	duckv1beta1 "knative.dev/pkg/apis/duck/v1beta1"
 	"github.com/knative/serving/pkg/apis/networking"
 	netv1alpha1 "github.com/knative/serving/pkg/apis/networking/v1alpha1"
 	"github.com/knative/serving/pkg/apis/serving/v1alpha1"
@@ -30,6 +27,9 @@ import (
 	routenames "github.com/knative/serving/pkg/reconciler/route/resources/names"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"knative.dev/pkg/apis"
+	duckv1alpha1 "knative.dev/pkg/apis/duck/v1alpha1"
+	duckv1beta1 "knative.dev/pkg/apis/duck/v1beta1"
 )
 
 // RouteOption enables further configuration of a Route.
@@ -177,6 +177,18 @@ func MarkIngressReady(r *v1alpha1.Route) {
 	})
 }
 
+// MarkIngressNotReady propagates a Ready=False ClusterIngress status to the Route.
+func MarkIngressNotReady(r *v1alpha1.Route) {
+	r.Status.PropagateClusterIngressStatus(netv1alpha1.IngressStatus{
+		Status: duckv1beta1.Status{
+			Conditions: duckv1beta1.Conditions{{
+				Type:   "Ready",
+				Status: "False",
+			}},
+		},
+	})
+}
+
 // MarkIngressNotConfigured calls the method of the same name on .Status
 func MarkIngressNotConfigured(r *v1alpha1.Route) {
 	r.Status.MarkIngressNotConfigured()
@@ -220,5 +232,19 @@ func WithIngressClass(ingressClass string) RouteOption {
 			r.Annotations = make(map[string]string)
 		}
 		r.Annotations[networking.IngressClassAnnotationKey] = ingressClass
+	}
+}
+
+// WithRouteGeneration sets the generation of the Route.
+func WithRouteGeneration(gen int64) RouteOption {
+	return func(r *v1alpha1.Route) {
+		r.Generation = gen
+	}
+}
+
+// WithRouteObservedGeneration sets the .Status.ObservedGeneration of the Route.
+func WithRouteObservedGeneration(gen int64) RouteOption {
+	return func(r *v1alpha1.Route) {
+		r.Status.ObservedGeneration = gen
 	}
 }
