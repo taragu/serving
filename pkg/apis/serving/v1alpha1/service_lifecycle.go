@@ -131,6 +131,11 @@ func (ss *ServiceStatus) MarkRouteNotYetReady() {
 	serviceCondSet.Manage(ss).MarkUnknown(ServiceConditionRoutesReady, trafficNotMigratedReason, trafficNotMigratedMessage)
 }
 
+// MarkRouteReadyFalse marks the service `RouteReady` condition to the `False` state.
+func (ss *ServiceStatus) MarkRouteReadyFalse(reason, messageFormat string) {
+	serviceCondSet.Manage(ss).MarkFalse(ServiceConditionRoutesReady, reason, messageFormat)
+}
+
 // MarkRouteNotReconciled notes that the Route controller has not yet
 // caught up to the desired changes we have specified.
 func (ss *ServiceStatus) MarkRouteNotReconciled() {
