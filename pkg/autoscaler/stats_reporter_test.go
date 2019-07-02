@@ -25,8 +25,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	"knative.dev/pkg/metrics/metricskey"
 	"go.opencensus.io/stats/view"
+	"knative.dev/pkg/metrics/metricskey"
 )
 
 func TestNewStatsReporterErrors(t *testing.T) {
@@ -73,7 +73,7 @@ func TestReporter_Report(t *testing.T) {
 	assertData(t, "panic_mode", wantTags, 0)
 	assertData(t, "stable_request_concurrency", wantTags, 2)
 	assertData(t, "panic_request_concurrency", wantTags, 3)
-	assertData(t, "target_concurrency_per_pod", wantTags, 0.9)
+	assertFloatData(t, "target_concurrency_per_pod", wantTags, 0.9)
 
 	// All the stats are gauges - record multiple entries for one stat - last one should stick
 	expectSuccess(t, "ReportDesiredPodCount", func() error { return r.ReportDesiredPodCount(1) })
@@ -119,7 +119,7 @@ func expectSuccess(t *testing.T, funcName string, f func() error) {
 	}
 }
 
-func assertData(t *testing.T, name string, wantTags map[string]string, wantValue float64) {
+func assertData(t *testing.T, name string, wantTags map[string]string, wantValue int64) {
 	var err error
 	wait.PollImmediate(1*time.Millisecond, 2*time.Second, func() (bool, error) {
 		if err = checkData(name, wantTags, wantValue); err != nil {
@@ -133,7 +133,55 @@ func assertData(t *testing.T, name string, wantTags map[string]string, wantValue
 	}
 }
 
-func checkData(name string, wantTags map[string]string, wantValue float64) error {
+func assertFloatData(t *testing.T, name string, wantTags map[string]string, wantValue float64) {
+	var err error
+	wait.PollImmediate(1*time.Millisecond, 2*time.Second, func() (bool, error) {
+		if err = checkFloatData(name, wantTags, wantValue); err != nil {
+			return false, nil
+		}
+		return true, nil
+	})
+
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func checkData(name string, wantTags map[string]string, wantValue int64) error {
+	d, err := view.RetrieveData(name)
+	if err != nil {
+		return err
+	}
+
+	if len(d) < 1 {
+		return errors.New("len(d) = 0, want: >= 0")
+	}
+	last := d[len(d)-1]
+
+	for _, got := range last.Tags {
+		want, ok := wantTags[got.Key.Name()]
+		if !ok {
+			return fmt.Errorf("got an unexpected tag from view.RetrieveData: (%v, %v)", got.Key.Name(), got.Value)
+		}
+		if got.Value != want {
+			return fmt.Errorf("Tags[%v] = %v, want: %v", got.Key.Name(), got.Value, want)
+		}
+	}
+
+	var value *view.CountData
+	value, ok := last.Data.(*view.CountData)
+	if !ok {
+		return fmt.Errorf("last.Data.(Type) = %T, want: %T", last.Data, value)
+	}
+
+	if value.Value != wantValue {
+		return fmt.Errorf("Value = %v, want: %v", value.Value, wantValue)
+	}
+
+	return nil
+}
+
+func checkFloatData(name string, wantTags map[string]string, wantValue float64) error {
 	d, err := view.RetrieveData(name)
 	if err != nil {
 		return err

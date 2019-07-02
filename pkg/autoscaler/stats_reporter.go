@@ -94,19 +94,19 @@ func init() {
 		&view.View{
 			Description: "Number of pods autoscaler wants to allocate",
 			Measure:     desiredPodCountM,
-			Aggregation: view.LastValue(),
+			Aggregation: view.Count(),
 			TagKeys:     []tag.Key{namespaceTagKey, serviceTagKey, configTagKey, revisionTagKey},
 		},
 		&view.View{
 			Description: "Number of pods autoscaler requested from Kubernetes",
 			Measure:     requestedPodCountM,
-			Aggregation: view.LastValue(),
+			Aggregation: view.Count(),
 			TagKeys:     []tag.Key{namespaceTagKey, serviceTagKey, configTagKey, revisionTagKey},
 		},
 		&view.View{
 			Description: "Number of pods that are allocated currently",
 			Measure:     actualPodCountM,
-			Aggregation: view.LastValue(),
+			Aggregation: view.Count(),
 			TagKeys:     []tag.Key{namespaceTagKey, serviceTagKey, configTagKey, revisionTagKey},
 		},
 		&view.View{
