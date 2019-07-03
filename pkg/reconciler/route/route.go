@@ -19,6 +19,7 @@ package route
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"go.uber.org/zap"
 	corev1 "k8s.io/api/core/v1"
@@ -147,6 +148,7 @@ func ingressClassForRoute(ctx context.Context, r *v1alpha1.Route) string {
 
 func (c *Reconciler) reconcile(ctx context.Context, r *v1alpha1.Route) error {
 	logger := logging.FromContext(ctx)
+	fmt.Printf("\n\n\n in reconcile\n\n")
 	if r.GetDeletionTimestamp() != nil {
 		// Check for a DeletionTimestamp.  If present, elide the normal reconcile logic.
 		return c.reconcileDeletion(ctx, r)
@@ -160,6 +162,7 @@ func (c *Reconciler) reconcile(ctx context.Context, r *v1alpha1.Route) error {
 	r.Status.InitializeConditions()
 
 	if err := r.ConvertUp(ctx, &v1beta1.Route{}); err != nil {
+		fmt.Printf("\n\n\n ------- reconcile exiting bc err := r.ConvertUp(ctx, &v1beta1.Route{}); err != nil\n\n")
 		return err
 	}
 
@@ -169,6 +172,7 @@ func (c *Reconciler) reconcile(ctx context.Context, r *v1alpha1.Route) error {
 	// make the cluster ingress.
 	host, err := domains.DomainNameFromTemplate(ctx, r, r.Name)
 	if err != nil {
+		fmt.Printf("\n\n\n ------- reconcile exiting bc err != nil for domains.DomainNameFromTemplate \n\n")
 		return err
 	}
 
@@ -183,6 +187,7 @@ func (c *Reconciler) reconcile(ctx context.Context, r *v1alpha1.Route) error {
 	traffic, err := c.configureTraffic(ctx, r)
 	if traffic == nil || err != nil {
 		// Traffic targets aren't ready, no need to configure child resources.
+		fmt.Printf("\n\n\n ------- reconcile exiting bc traffic == nil || err != nil \n\n")
 		return err
 	}
 
@@ -190,6 +195,7 @@ func (c *Reconciler) reconcile(ctx context.Context, r *v1alpha1.Route) error {
 	// In all cases we will add annotations to the referred targets.  This is so that when they become
 	// routable we can know (through a listener) and attempt traffic configuration again.
 	if err := c.reconcileTargetRevisions(ctx, traffic, r); err != nil {
+		fmt.Printf("\n\n\n ------- reconcile exiting bc reconcileTargetRevisions err \n\n")
 		return err
 	}
 
@@ -209,17 +215,20 @@ func (c *Reconciler) reconcile(ctx context.Context, r *v1alpha1.Route) error {
 
 	// Add the finalizer before creating the ClusterIngress so that we can be sure it gets cleaned up.
 	if err := c.ensureFinalizer(r); err != nil {
+		fmt.Printf("\n\n\n ------- reconcile exiting bc ensureFinalizer err \n\n")
 		return err
 	}
 
 	logger.Info("Creating placeholder k8s services")
 	services, err := c.reconcilePlaceholderServices(ctx, r, traffic.Targets)
 	if err != nil {
+		fmt.Printf("\n\n\n ------- reconcile exiting bc reconcilePlaceholderServices err \n\n")
 		return err
 	}
 
 	tls, err := c.tls(ctx, host, r, traffic)
 	if err != nil {
+		fmt.Printf("\n\n\n ------- reconcile exiting bc tls err \n\n")
 		return err
 	}
 
