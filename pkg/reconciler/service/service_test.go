@@ -37,6 +37,7 @@ import (
 	"knative.dev/pkg/configmap"
 	"knative.dev/pkg/controller"
 	logtesting "knative.dev/pkg/logging/testing"
+	"knative.dev/pkg/ptr"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -326,60 +327,67 @@ func TestReconcile(t *testing.T) {
 		Name: "release - service's RoutesReady should change from Unknown to False when route's status is Ready False",
 		Objects: []runtime.Object{
 			// The service starts out with "RoutesReady" == "Unknown"
-			Service("release-nr", "foo", WithReleaseRollout("release-nr-00002")),
-			config("release-nr", "foo", WithReleaseRollout("release-nr-00002"),
-				WithLatestCreated("release-nr-00002"),
-				WithLatestReady("release-nr-00002")),
-
+			Service("release-nr-routesready-unknown", "foo", WithReleaseRollout("release-nr-routesready-unknown-00002")),
+			config("release-nr-routesready-unknown", "foo", WithReleaseRollout("release-nr-routesready-unknown-00002"),
+				WithLatestCreated("release-nr-routesready-unknown-00002"),
+				WithLatestReady("release-nr-routesready-unknown-00002")),
 			// The route's Ready status is false
-			route("release-nr", "foo", WithReleaseRollout("release-nr-00002"), RouteReady,
+			route("release-nr-routesready-unknown", "foo",
+				WithReleaseRollout("release-nr-routesready-unknown-00002"),
+				RouteReady,
 				WithURL, WithAddress, WithInitRouteConditions,
-				WithStatusTraffic(v1alpha1.TrafficTarget{
+				WithRouteGeneration(1),
+				MarkTrafficAssigned, MarkIngressNotReady,
+				// Making a change so that reconcileRoute will be making an update
+				WithRouteSpecTraffic(v1alpha1.TrafficTarget{
 					TrafficTarget: v1beta1.TrafficTarget{
-						Tag:          v1alpha1.CurrentTrafficTarget,
-						RevisionName: "release-nr-00002",
+						RevisionName: "release-nr-routesready-unknown-00002",
 						Percent:      100,
+					},
+				}),
+			),
+		},
+		Key: "foo/release-nr-routesready-unknown",
+		WantUpdates: []clientgotesting.UpdateActionImpl{{
+			Object: route("release-nr-routesready-unknown", "foo",
+				WithRunLatestRollout,
+				WithURL, WithAddress, WithInitRouteConditions,
+				WithRouteGeneration(1), WithRouteObservedGeneration,
+				MarkTrafficAssigned, MarkIngressNotReady,
+				WithRouteSpecTraffic(v1alpha1.TrafficTarget{
+					TrafficTarget: v1beta1.TrafficTarget{
+						Tag:            "current",
+						RevisionName:   "release-nr-routesready-unknown-00002",
+						Percent:        100,
+						LatestRevision: ptr.Bool(false),
 					},
 				}, v1alpha1.TrafficTarget{
 					TrafficTarget: v1beta1.TrafficTarget{
-						Tag:          v1alpha1.LatestTrafficTarget,
-						RevisionName: "release-nr-00002",
-						Percent:      0,
+						Tag:               "latest",
+						ConfigurationName: "release-nr-routesready-unknown",
+						LatestRevision:    ptr.Bool(true),
 					},
-				}), MarkTrafficAssigned, MarkIngressNotReady),
-		},
-		Key: "foo/release-nr",
+				}),
+			),
+		}},
 		WantStatusUpdates: []clientgotesting.UpdateActionImpl{{
-			Object: Service("release-nr", "foo",
-				WithReleaseRollout("release-nr-00002"),
-				WithFailedRoute("release-nr-00002", ""),
+			Object: Service("release-nr-routesready-unknown", "foo",
+				WithReleaseRollout("release-nr-routesready-unknown-00002"),
+				WithFailedRoute("release-nr-routesready-unknown-00002", ""),
 				// After reconciliation, the service's "RoutesReady" should be updated to "False"
 				WithServiceStatusRouteFalse,
-				WithReadyConfig("release-nr-00002"),
-				WithSvcStatusDomain, WithSvcStatusAddress,
-				WithSvcStatusTraffic(v1alpha1.TrafficTarget{
-					TrafficTarget: v1beta1.TrafficTarget{
-						Tag:          v1alpha1.CurrentTrafficTarget,
-						RevisionName: "release-nr-00002",
-						Percent:      100,
-					},
-				}, v1alpha1.TrafficTarget{
-					TrafficTarget: v1beta1.TrafficTarget{
-						Tag:          v1alpha1.LatestTrafficTarget,
-						RevisionName: "release-nr-00002",
-						Percent:      0,
-					},
-				})),
+				WithReadyConfig("release-nr-routesready-unknown-00002"),
+				WithSvcStatusDomain, WithSvcStatusAddress),
 		}},
 		WantPatches: []clientgotesting.PatchActionImpl{{
 			ActionImpl: clientgotesting.ActionImpl{
 				Namespace: "foo",
 			},
-			Name:  "release-nr",
+			Name:  "release-nr-routesready-unknown",
 			Patch: []byte(reconciler.ForceUpgradePatch),
 		}},
 		WantEvents: []string{
-			Eventf(corev1.EventTypeNormal, "Updated", "Updated Service %q", "release-nr"),
+			Eventf(corev1.EventTypeNormal, "Updated", "Updated Service %q", "release-nr-routesready-unknown"),
 		},
 	}, {
 		Name: "release - update service, route not ready, 2 rev, no split",
@@ -1454,6 +1462,18 @@ func route(name, namespace string, so ServiceOption, ro ...RouteOption) *v1alpha
 // TODO(mattmoor): Replace these when we refactor Route's table_test.go
 func MutateRoute(rt *v1alpha1.Route) {
 	rt.Spec = v1alpha1.RouteSpec{}
+}
+
+// WithRouteSpecTraffic sets the Route's spec to the specified route spec.
+// func WithRouteSpecTraffic(spec v1alpha1.RouteSpec) RouteOption {
+// 	return func(r *v1alpha1.Route) {
+// 		r.Spec = spec
+// 	}
+// }
+func WithRouteSpecTraffic(traffic ...v1alpha1.TrafficTarget) RouteOption {
+	return func(r *v1alpha1.Route) {
+		r.Spec.Traffic = traffic
+	}
 }
 
 func RouteReady(cfg *v1alpha1.Route) {

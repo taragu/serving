@@ -243,8 +243,6 @@ func WithRouteGeneration(gen int64) RouteOption {
 }
 
 // WithRouteObservedGeneration sets the .Status.ObservedGeneration of the Route.
-func WithRouteObservedGeneration(gen int64) RouteOption {
-	return func(r *v1alpha1.Route) {
-		r.Status.ObservedGeneration = gen
-	}
+func WithRouteObservedGeneration(r *v1alpha1.Route) {
+	r.Status.ObservedGeneration = r.Generation
 }
