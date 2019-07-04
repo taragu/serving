@@ -173,7 +173,6 @@ func (c *Reconciler) reconcile(ctx context.Context, service *v1alpha1.Service) e
 		return err
 	}
 
-	fmt.Printf("\n\n\n\n=========reconciler, route.Generation is %v, route.Status.ObservedGeneration is %v\n\n\n", route.Generation, route.Status.ObservedGeneration)
 	// Update our Status based on the state of our underlying Route.
 	ss := &service.Status
 	if route.Generation != route.Status.ObservedGeneration {
@@ -360,7 +359,6 @@ func routeSemanticEquals(desiredRoute, route *v1alpha1.Route) bool {
 
 func (c *Reconciler) reconcileRoute(ctx context.Context, service *v1alpha1.Service, route *v1alpha1.Route) (*v1alpha1.Route, error) {
 	logger := logging.FromContext(ctx)
-	fmt.Printf("\n\n\n\n\n --------reconcileRoute \n\n\n")
 	desiredRoute, err := resources.MakeRoute(service)
 	if err != nil {
 		// This should be unreachable as configuration creation
@@ -371,16 +369,13 @@ func (c *Reconciler) reconcileRoute(ctx context.Context, service *v1alpha1.Servi
 
 	if routeSemanticEquals(desiredRoute, route) {
 		// No differences to reconcile.
-		fmt.Printf("\n\n\n\n\n No differences to reconcile. desiredRoute is \n%v\n\n, route is \n%v\n\n\n\n\n\n", desiredRoute, route)
 		return route, nil
 	}
 	diff, err := kmp.SafeDiff(desiredRoute.Spec, route.Spec)
 	if err != nil {
-		fmt.Printf("\n\n\n\n\n failed to diff Route \n\n\n")
 		return nil, fmt.Errorf("failed to diff Route: %v", err)
 	}
 	logger.Infof("Reconciling route diff (-desired, +observed): %s", diff)
-	fmt.Printf("\n\n\n\n\n Reconciling route diff (-desired, +observed): %s\n\n\n", diff)
 
 	// Don't modify the informers copy.
 	existing := route.DeepCopy()
@@ -391,14 +386,9 @@ func (c *Reconciler) reconcileRoute(ctx context.Context, service *v1alpha1.Servi
 
 	rc := route.Status.GetCondition(apis.ConditionReady)
 	if rc != nil && rc.Status == corev1.ConditionFalse {
-		fmt.Printf("\n\n\n\n\n route existing.Status.ObservedGeneration++!!!!!!!! \n\n\n\n\n\n")
+		logger.Infof("Updating ObservedGeneration")
 		existing.Status.ObservedGeneration++
 	}
 
-	newRoute, err := c.ServingClientSet.ServingV1alpha1().Routes(service.Namespace).Update(existing)
-	fmt.Printf("\n\n\n\n=============++++++++ route is now updated to %v \n\n", newRoute)
-	if newRoute != nil {
-		fmt.Printf("\n\n\n\n=============++++++++ newRoute.Generation is %v, newRoute.Status.ObservedGeneration is %v, newRoute.Spec is %v\n\n\n", newRoute.Generation, newRoute.Status.ObservedGeneration, newRoute.Spec)
-	}
-	return newRoute, err
+	return c.ServingClientSet.ServingV1alpha1().Routes(service.Namespace).Update(existing)
 }
