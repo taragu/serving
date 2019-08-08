@@ -23,7 +23,6 @@ import (
 	duckv1beta1 "knative.dev/pkg/apis/duck/v1beta1"
 	"knative.dev/pkg/kmeta"
 	net "knative.dev/serving/pkg/apis/networking"
-	servingv1beta1 "knative.dev/serving/pkg/apis/serving/v1beta1"
 )
 
 // +genclient
@@ -72,9 +71,9 @@ type PodAutoscalerSpec struct {
 
 	// ContainerConcurrency specifies the maximum allowed
 	// in-flight (concurrent) requests per container of the Revision.
-	// Defaults to `0` which means unlimited concurrency.
+	// Defaults to a pointer to `0` which means unlimited concurrency.
 	// +optional
-	ContainerConcurrency servingv1beta1.RevisionContainerConcurrencyType `json:"containerConcurrency,omitempty"`
+	ContainerConcurrency *int64 `json:"containerConcurrency,omitempty"`
 
 	// ScaleTargetRef defines the /scale-able resource that this PodAutoscaler
 	// is responsible for quickly right-sizing.

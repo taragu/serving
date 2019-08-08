@@ -20,7 +20,9 @@ import (
 	"context"
 
 	"knative.dev/pkg/apis"
+	"knative.dev/pkg/ptr"
 	"knative.dev/serving/pkg/apis/autoscaling"
+	"knative.dev/serving/pkg/apis/config"
 )
 
 func defaultMetric(class string) string {
@@ -46,6 +48,12 @@ func (r *PodAutoscaler) SetDefaults(ctx context.Context) {
 	// Default metric per class
 	if _, ok := r.Annotations[autoscaling.MetricAnnotationKey]; !ok {
 		r.Annotations[autoscaling.MetricAnnotationKey] = defaultMetric(r.Class())
+	}
+
+	cfg := config.FromContextOrDefaults(ctx)
+	// Default ContainerConcurrency based on our configmap
+	if r.Spec.ContainerConcurrency == nil {
+		r.Spec.ContainerConcurrency = ptr.Int64(cfg.Defaults.ContainerConcurrency)
 	}
 }
 

@@ -21,16 +21,15 @@ import (
 	"math"
 	"testing"
 
-	"knative.dev/pkg/ptr"
-
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"knative.dev/pkg/apis"
+	"knative.dev/pkg/ptr"
 	"knative.dev/serving/pkg/apis/autoscaling"
+	"knative.dev/serving/pkg/apis/config"
 	net "knative.dev/serving/pkg/apis/networking"
-	"knative.dev/serving/pkg/apis/serving/v1beta1"
 )
 
 func TestPodAutoscalerSpecValidation(t *testing.T) {
@@ -126,7 +125,7 @@ func TestPodAutoscalerSpecValidation(t *testing.T) {
 			ProtocolType: net.ProtocolHTTP1,
 		},
 		want: apis.ErrOutOfBoundsValue(-1, 0,
-			v1beta1.RevisionContainerConcurrencyMax, "containerConcurrency"),
+			config.DefaultMaxRevisionContainerConcurrency, "containerConcurrency"),
 	}, {
 		name: "multi invalid, bad concurrency and missing ref kind",
 		rs: &PodAutoscalerSpec{
@@ -138,7 +137,7 @@ func TestPodAutoscalerSpecValidation(t *testing.T) {
 			ProtocolType: net.ProtocolHTTP1,
 		},
 		want: apis.ErrOutOfBoundsValue(-2, 0,
-			v1beta1.RevisionContainerConcurrencyMax, "containerConcurrency").Also(
+			config.DefaultMaxRevisionContainerConcurrency, "containerConcurrency").Also(
 			apis.ErrMissingField("scaleTargetRef.kind")),
 	}}
 
@@ -258,7 +257,7 @@ func TestPodAutoscalerValidation(t *testing.T) {
 			},
 		},
 		want: apis.ErrOutOfBoundsValue(-1, 0,
-			v1beta1.RevisionContainerConcurrencyMax, "spec.containerConcurrency"),
+			config.DefaultMaxRevisionContainerConcurrency, "spec.containerConcurrency"),
 	}}
 
 	for _, test := range tests {
