@@ -109,7 +109,7 @@ func WithKPAClass(pa *autoscalingv1alpha1.PodAutoscaler) {
 // the PodAutoscaler containerConcurrency to the provided value.
 func WithPAContainerConcurrency(cc int64) PodAutoscalerOption {
 	return func(pa *autoscalingv1alpha1.PodAutoscaler) {
-		pa.Spec.ContainerConcurrency = &cc
+		pa.Spec.ContainerConcurrency = cc
 	}
 }
 
