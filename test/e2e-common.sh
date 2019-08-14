@@ -30,6 +30,10 @@ ISTIO_VERSION="1.2-latest"
 ISTIO_MESH=0
 CERT_MANAGER_VERSION="0.6.1"
 
+# Default set HTTP to enabled, and no HTTPS
+HTTP_ENABLED=1
+AUTO_TLS_ENABLED=0
+
 # Current YAMLs used to install Knative Serving.
 INSTALL_RELEASE_YAML=""
 INSTALL_MONITORING_YAML=""
@@ -67,6 +71,22 @@ function parse_flags() {
       ;;
     --no-mesh)
       readonly ISTIO_MESH=0
+      return 1
+      ;;
+    --http)
+      readonly HTTP_ENABLED=1
+      return 1
+      ;;
+    --no-http)
+      readonly HTTP_ENABLED=0
+      return 1
+      ;;
+    --auto-tls)
+      readonly AUTO_TLS_ENABLED=1
+      return 1
+      ;;
+    --no-auto-tls)
+      readonly AUTO_TLS_ENABLED=0
       return 1
       ;;
     --install-monitoring)
@@ -330,6 +350,16 @@ function test_setup() {
 
   echo ">> Creating test resources (test/config/)"
   ko apply ${KO_FLAGS} -f test/config/ || return 1
+
+  # Depending on the flags `HTTP_ENABLED` and `AUTO_TLS_ENABLED`, apply the appropriate network configs
+  if (( HTTP_ENABLED )) &&  (( AUTO_TLS_ENABLED )); then
+    ko apply ${KO_FLAGS} -f test/config-network/config-network-http-https.yaml || return 1
+  elif (( HTTP_ENABLED )) && (( ! AUTO_TLS_ENABLED )); then
+    ko apply ${KO_FLAGS} -f test/config-network/config-network-http.yaml || return 1
+  elif (( ! HTTP_ENABLED )) && (( AUTO_TLS_ENABLED )); then
+    ko apply ${KO_FLAGS} -f test/config-network/config-network-https.yaml || return 1
+  fi
+
   ${REPO_ROOT_DIR}/test/upload-test-images.sh || return 1
   wait_until_pods_running knative-serving || return 1
   if [[ -z "${GLOO_VERSION}" ]]; then
