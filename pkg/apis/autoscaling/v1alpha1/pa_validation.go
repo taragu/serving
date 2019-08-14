@@ -38,9 +38,7 @@ func (pa *PodAutoscalerSpec) Validate(ctx context.Context) *apis.FieldError {
 		return apis.ErrMissingField(apis.CurrentField)
 	}
 	errs := serving.ValidateNamespacedObjectReference(&pa.ScaleTargetRef).ViaField("scaleTargetRef")
-	errs = errs.Also(serving.ValidateContainerConcurrency(ctx, pa.GetContainerConcurrency()).ViaField("containerConcurrency"))
-
-	return errs.Also(validateSKSFields(ctx, pa))
+	return errs.Also(serving.ValidateContainerConcurrency(ctx, pa.GetContainerConcurrency()).ViaField("containerConcurrency")).Also(validateSKSFields(ctx, pa))
 }
 
 func validateSKSFields(ctx context.Context, rs *PodAutoscalerSpec) (errs *apis.FieldError) {
