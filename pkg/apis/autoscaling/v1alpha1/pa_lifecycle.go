@@ -27,7 +27,6 @@ import (
 	"knative.dev/pkg/apis"
 	duckv1beta1 "knative.dev/pkg/apis/duck/v1beta1"
 	"knative.dev/serving/pkg/apis/autoscaling"
-	"knative.dev/serving/pkg/apis/config"
 )
 
 var podCondSet = apis.NewLivingConditionSet(
@@ -214,13 +213,4 @@ func (pas *PodAutoscalerStatus) inStatusFor(status corev1.ConditionStatus, dur t
 
 func (pas *PodAutoscalerStatus) duck() *duckv1beta1.Status {
 	return (*duckv1beta1.Status)(&pas.Status)
-}
-
-// GetContainerConcurrency returns the container concurrency. If
-// container concurrency is not set, the defailt value will be returned
-func (paspec *PodAutoscalerSpec) GetContainerConcurrency() int64 {
-	if paspec.ContainerConcurrency == nil {
-		return config.DefaultContainerConcurrency
-	}
-	return *paspec.ContainerConcurrency
 }

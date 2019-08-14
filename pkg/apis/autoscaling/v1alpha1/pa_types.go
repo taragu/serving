@@ -71,9 +71,9 @@ type PodAutoscalerSpec struct {
 
 	// ContainerConcurrency specifies the maximum allowed
 	// in-flight (concurrent) requests per container of the Revision.
-	// Defaults to a pointer to nil which means unlimited concurrency.
+	// Defaults to 0 which means unlimited concurrency.
 	// +optional
-	ContainerConcurrency *int64 `json:"containerConcurrency,omitempty"`
+	ContainerConcurrency int64 `json:"containerConcurrency,omitempty"`
 
 	// ScaleTargetRef defines the /scale-able resource that this PodAutoscaler
 	// is responsible for quickly right-sizing.
