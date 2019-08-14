@@ -49,16 +49,16 @@ import (
 	corev1informers "k8s.io/client-go/informers/core/v1"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 
-	_ "knative.dev/pkg/system/testing"
 	"knative.dev/pkg/ptr"
+	_ "knative.dev/pkg/system/testing"
 )
 
 const (
-	testNamespace            = "good-namespace"
-	testRevision             = "good-name"
-	defaultMaxConcurrency    = 1000
-	defaultConcurrency int64 = 10
-	initCapacity             = 0
+	testNamespace               = "good-namespace"
+	testRevision                = "good-name"
+	defaultMaxConcurrency       = 1000
+	defaultConcurrency    int64 = 10
+	initCapacity                = 0
 )
 
 var revID = RevisionID{testNamespace, testRevision}
