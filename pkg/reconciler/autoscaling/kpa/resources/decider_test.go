@@ -23,7 +23,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"knative.dev/pkg/ptr"
 	"knative.dev/serving/pkg/apis/autoscaling"
 	"knative.dev/serving/pkg/apis/autoscaling/v1alpha1"
 	"knative.dev/serving/pkg/autoscaler"
@@ -133,7 +132,7 @@ func pa(options ...PodAutoscalerOption) *v1alpha1.PodAutoscaler {
 			},
 		},
 		Spec: v1alpha1.PodAutoscalerSpec{
-			ContainerConcurrency: ptr.Int64(0),
+			ContainerConcurrency: 0,
 		},
 		Status: v1alpha1.PodAutoscalerStatus{},
 	}
