@@ -19,11 +19,13 @@ package resources
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"knative.dev/pkg/kmeta"
 	"knative.dev/pkg/logging"
 	"knative.dev/pkg/ptr"
 	tracingconfig "knative.dev/pkg/tracing/config"
+	"knative.dev/serving/pkg/apis/autoscaling"
 	"knative.dev/serving/pkg/apis/networking"
 	"knative.dev/serving/pkg/apis/serving"
 	"knative.dev/serving/pkg/apis/serving/v1alpha1"
@@ -221,9 +223,16 @@ func MakeDeployment(rev *v1alpha1.Revision,
 			podTemplateAnnotations[IstioOutboundIPRangeAnnotation] = networkConfig.IstioOutboundIPRanges
 		}
 	}
+
 	podSpec, err := makePodSpec(rev, loggingConfig, tracingConfig, observabilityConfig, deploymentConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create PodSpec: %w", err)
+	}
+
+	replicaCount := ptr.Int32(1)
+	ann, found := rev.ObjectMeta.Annotations[autoscaling.CheckValidityOnDeployAnnotation]
+	if found && !strings.EqualFold(ann, "true") {
+		replicaCount = ptr.Int32(0)
 	}
 
 	return &appsv1.Deployment{
@@ -238,7 +247,7 @@ func MakeDeployment(rev *v1alpha1.Revision,
 			OwnerReferences: []metav1.OwnerReference{*kmeta.NewControllerRef(rev)},
 		},
 		Spec: appsv1.DeploymentSpec{
-			Replicas:                ptr.Int32(1),
+			Replicas:                replicaCount,
 			Selector:                makeSelector(rev),
 			ProgressDeadlineSeconds: ptr.Int32(ProgressDeadlineSeconds),
 			Template: corev1.PodTemplateSpec{

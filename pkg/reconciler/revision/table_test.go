@@ -18,6 +18,8 @@ package revision
 
 import (
 	"context"
+	"knative.dev/pkg/ptr"
+	"strconv"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -34,6 +36,7 @@ import (
 	asv1a1 "knative.dev/serving/pkg/apis/autoscaling/v1alpha1"
 	"knative.dev/serving/pkg/apis/networking"
 	v1 "knative.dev/serving/pkg/apis/serving/v1"
+	"knative.dev/serving/pkg/apis/autoscaling"
 	"knative.dev/serving/pkg/apis/serving/v1alpha1"
 	"knative.dev/serving/pkg/metrics"
 	"knative.dev/serving/pkg/network"
@@ -566,6 +569,40 @@ func TestReconcile(t *testing.T) {
 				WithLogURL, AllUnknownConditions, MarkDeploying("Deploying")),
 		}},
 		Key: "foo/image-pull-secrets",
+	}, {
+		Name: "check validity on deploy - false",
+		Objects: []runtime.Object{
+			rev("foo", "check-validity-on-deploy-false", WithCheckValidityOnDeploy(false)),
+			pa("foo", "check-validity-on-deploy-false"),
+		},
+		WantCreates: []runtime.Object{
+			// Replica count should be 0
+			withReplicaCount(checkValidityOnDeploy(deploy(t, "foo", "check-validity-on-deploy-false"), false), 0),
+			checkValidityOnDeployImage(image("foo", "check-validity-on-deploy-false"), false),
+		},
+		WantStatusUpdates: []clientgotesting.UpdateActionImpl{{
+			Object: rev("foo", "check-validity-on-deploy-false", WithCheckValidityOnDeploy(false),
+				WithLogURL, AllUnknownConditions,
+				MarkDeploying("Deploying")),
+		}},
+		Key: "foo/check-validity-on-deploy-false",
+	}, {
+		Name: "check validity on deploy - true",
+		Objects: []runtime.Object{
+			rev("foo", "check-validity-on-deploy-true", WithCheckValidityOnDeploy(true)),
+			pa("foo", "check-validity-on-deploy-true"),
+		},
+		WantCreates: []runtime.Object{
+			// Replica count should be 1
+			withReplicaCount(checkValidityOnDeploy(deploy(t, "foo", "check-validity-on-deploy-true"), true), 1),
+			checkValidityOnDeployImage(image("foo", "check-validity-on-deploy-true"), true),
+		},
+		WantStatusUpdates: []clientgotesting.UpdateActionImpl{{
+			Object: rev("foo", "check-validity-on-deploy-true", WithCheckValidityOnDeploy(true),
+				WithLogURL, AllUnknownConditions,
+				MarkDeploying("Deploying")),
+		}},
+		Key: "foo/check-validity-on-deploy-true",
 	}}
 
 	table.Test(t, MakeFactory(func(ctx context.Context, listers *Listers, cmw configmap.Watcher) controller.Reconciler {
@@ -623,10 +660,40 @@ func deployImagePullSecrets(deploy *appsv1.Deployment, secretName string) *appsv
 	return deploy
 }
 
+func checkValidityOnDeploy(deploy *appsv1.Deployment, checkValidityOnDeploy bool) *appsv1.Deployment {
+	if deploy.ObjectMeta.Annotations == nil {
+		deploy.ObjectMeta.Annotations = map[string]string{}
+	}
+	deploy.ObjectMeta.Annotations[autoscaling.CheckValidityOnDeployAnnotation] = strconv.FormatBool(checkValidityOnDeploy)
+	if deploy.Spec.Template.ObjectMeta.Annotations == nil {
+		deploy.Spec.Template.ObjectMeta.Annotations = map[string]string{}
+	}
+	deploy.Spec.Template.ObjectMeta.Annotations[autoscaling.CheckValidityOnDeployAnnotation] = strconv.FormatBool(checkValidityOnDeploy)
+	return deploy
+}
+
+func withReplicaCount(deploy *appsv1.Deployment, numReplica int) *appsv1.Deployment {
+	deploy.Spec.Replicas = ptr.Int32(int32(numReplica))
+	return deploy
+}
+
 func imagePullSecrets(image *caching.Image, secretName string) *caching.Image {
 	image.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{
 		Name: secretName,
 	}}
+	return image
+}
+
+func checkValidityOnDeployImage(image *caching.Image, checkValidityOnDeploy bool) *caching.Image {
+	if image.ObjectMeta.Annotations == nil {
+		image.ObjectMeta.Annotations = map[string]string{}
+	}
+	image.ObjectMeta.Annotations[autoscaling.CheckValidityOnDeployAnnotation] = strconv.FormatBool(checkValidityOnDeploy)
+	//if deploy.Spec.Template.ObjectMeta.Annotations == nil {
+	//	deploy.Spec.Template.ObjectMeta.Annotations = map[string]string{}
+	//}
+	//deploy.Spec.Template.ObjectMeta.Annotations[serving.CheckValidityOnDeployAnnotation] = strconv.FormatBool(checkValidityOnDeploy)
+	//return deploy
 	return image
 }
 

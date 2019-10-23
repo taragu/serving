@@ -23,6 +23,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	v1 "k8s.io/api/core/v1"
 
 	// Mysteriously required to support GCP auth (required by k8s libs).
 	// Apparently just importing it is enough. @_@ side effects @_@.
@@ -73,6 +74,24 @@ func autoscalerCM(clients *test.Clients) (*autoscaler.Config, error) {
 		return nil, err
 	}
 	return autoscaler.NewConfigFromMap(autoscalerCM.Data)
+}
+
+// defaultCM returns the current config-defaults config map deployed to the
+// test cluster.
+func defaultCM(clients *test.Clients) (*v1.ConfigMap, error) {
+	defaultCM, err := clients.KubeClient.Kube.CoreV1().ConfigMaps("knative-serving").Get(
+		"config-defaults",
+		metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return defaultCM, nil
+}
+
+// patchDefaultCM updates the current config-defaults config map with the provided value.
+func patchDefaultCM(clients *test.Clients, cm *v1.ConfigMap) (*v1.ConfigMap, error) {
+	newConfigMap, err := clients.KubeClient.Kube.CoreV1().ConfigMaps("knative-serving").Update(cm)
+	return newConfigMap, err
 }
 
 // WaitForScaleToZero will wait for the specified deployment to scale to 0 replicas.

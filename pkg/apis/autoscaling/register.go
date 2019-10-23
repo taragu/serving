@@ -157,4 +157,7 @@ const (
 	// KPALabelKey is the label key attached to a K8s Service to hint to the KPA
 	// which services/endpoints should trigger reconciles.
 	KPALabelKey = GroupName + "/kpa"
+
+	// CheckValidityOnDeployAnnotation
+	CheckValidityOnDeployAnnotation = GroupName + "/checkValidityOnDeploy"
 )

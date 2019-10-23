@@ -19,6 +19,7 @@ package kpa
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"go.uber.org/zap"
 
@@ -28,6 +29,7 @@ import (
 	pav1alpha1 "knative.dev/serving/pkg/apis/autoscaling/v1alpha1"
 	nv1alpha1 "knative.dev/serving/pkg/apis/networking/v1alpha1"
 	"knative.dev/serving/pkg/apis/serving"
+	"knative.dev/serving/pkg/apis/autoscaling"
 	"knative.dev/serving/pkg/autoscaler"
 	areconciler "knative.dev/serving/pkg/reconciler/autoscaling"
 	"knative.dev/serving/pkg/reconciler/autoscaling/config"
@@ -291,10 +293,12 @@ func computeActiveCondition(pa *pav1alpha1.PodAutoscaler, want int32, got int) {
 
 // activeThreshold returns the scale required for the pa to be marked Active
 func activeThreshold(pa *pav1alpha1.PodAutoscaler) int {
+	checkValidityOnDeploy, ok := pa.ObjectMeta.Annotations[autoscaling.CheckValidityOnDeployAnnotation]
+	defaultScaleOne := !ok || strings.EqualFold(checkValidityOnDeploy, "true")
+
 	min, _ := pa.ScaleBounds()
-	if min < 1 {
+	if min < 1 && defaultScaleOne {
 		min = 1
 	}
-
 	return int(min)
 }

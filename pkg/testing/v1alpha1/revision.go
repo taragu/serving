@@ -17,10 +17,12 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"strconv"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"knative.dev/serving/pkg/apis/autoscaling"
 	"knative.dev/serving/pkg/apis/serving/v1alpha1"
 )
 
@@ -102,6 +104,19 @@ func WithImagePullSecrets(secretName string) RevisionOption {
 		rev.Spec.ImagePullSecrets = []corev1.LocalObjectReference{{
 			Name: secretName,
 		}}
+	}
+}
+
+// WithCheckValidityOnDeploy updates the checkValidityOnDeploy annotation to
+// the provided value
+func WithCheckValidityOnDeploy(b bool) RevisionOption {
+	return func(rev *v1alpha1.Revision) {
+		ans := rev.Annotations
+		if ans == nil {
+			ans = map[string]string{}
+		}
+		ans[autoscaling.CheckValidityOnDeployAnnotation] = strconv.FormatBool(b)
+		rev.SetAnnotations(ans)
 	}
 }
 
