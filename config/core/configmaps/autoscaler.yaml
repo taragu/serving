@@ -21,6 +21,7 @@ metadata:
     serving.knative.dev/release: devel
 
 data:
+  enable-daemonset-scraper: "true"
   _example: |
     ################################
     #                              #
@@ -168,3 +169,8 @@ data:
     # See the algorithm here: http://bit.ly/38XiCZ3.
     # TODO(vagababov): tune after actual benchmarking.
     activator-capacity: "100.0"
+
+    # Enable daemonset scraper indicates whether we will enable 100% pod
+    # scraping by running a daemonset on each node.
+    # This should not be enabled when mesh is enabled.
+    enable-daemonset-scraper: "false"

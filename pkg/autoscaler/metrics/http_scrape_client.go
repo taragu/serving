@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
@@ -109,6 +110,20 @@ func prometheusMetric(metricFamilies map[string]*dto.MetricFamily, key string) *
 	return nil
 }
 
+func prometheusBulkMetric(metricFamilies map[string]*dto.MetricFamily, key string) []*dto.Metric {
+	if metric, ok := metricFamilies[key]; ok && len(metric.Metric) > 0 {
+		// for i, m := range metric.Metric {
+		// 	for _, l := range m.Label {
+		// println(">>>> ", i, ". label ", l.GetName(), ": ", l.GetValue())
+		// }
+		// fmt.Printf(">> %d.metric[%s].value %v\n", i, key, *m.Gauge.Value)
+		// }
+		return metric.Metric
+	}
+
+	return nil
+}
+
 // prometheusLabels returns the value of the label with the given key from the
 // given slice of labels. Returns an empty string if the label cannot be found.
 func prometheusLabel(labels []*dto.LabelPair, key string) string {
@@ -119,4 +134,81 @@ func prometheusLabel(labels []*dto.LabelPair, key string) string {
 	}
 
 	return ""
+}
+
+// BulkScrape collects metrics from a DaemonSet scraper, which collects stats
+// of all pods of the node the DaemonSet resides on.
+func (c *httpScrapeClient) BulkScrape(url string) (map[string][]Stat, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return emptyBulkStat, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return emptyBulkStat, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return emptyBulkStat, fmt.Errorf("GET request for URL %q returned HTTP status %v", url, resp.StatusCode)
+	}
+	return extractBulkData(url, resp.Body)
+}
+
+func extractBulkData(url string, body io.Reader) (map[string][]Stat, error) {
+	var parser expfmt.TextParser
+	bulkMetricFamilies, err := parser.TextToMetricFamilies(body)
+	if err != nil {
+		return emptyBulkStat, fmt.Errorf("reading text format failed: %w", err)
+	}
+
+	stats := map[string]Stat{}
+	revStats := map[string][]Stat{}
+	for _, m := range []string{
+		"queue_average_concurrent_requests",
+		"queue_average_proxied_concurrent_requests",
+		"queue_requests_per_second",
+		"queue_proxied_operations_per_second",
+	} {
+		pms := prometheusBulkMetric(bulkMetricFamilies, m)
+		if pms == nil {
+			return emptyBulkStat, nil
+		}
+
+		for _, pm := range pms {
+			podName := prometheusLabel(pm.Label, "destination_pod")
+			if podName == "" {
+				continue
+			}
+
+			revName := prometheusLabel(pm.Label, "destination_revision")
+			if revName == "" {
+				continue
+			}
+
+			var (
+				stat Stat
+				ok   bool
+			)
+			if stat, ok = stats[podName]; !ok {
+				stat = emptyStat
+				stat.Time = time.Now()
+				stat.PodName = podName
+				stat.RevisionName = revName
+			}
+
+			metricMap := map[string]*float64{
+				"queue_average_concurrent_requests":         &stat.AverageConcurrentRequests,
+				"queue_average_proxied_concurrent_requests": &stat.AverageProxiedConcurrentRequests,
+				"queue_requests_per_second":                 &stat.RequestCount,
+				"queue_proxied_operations_per_second":       &stat.ProxiedRequestCount,
+			}
+			if pv, ok := metricMap[m]; ok {
+				*pv = *pm.Gauge.Value
+				stats[podName] = stat
+				revStats[revName] = append(revStats[revName], stat)
+			}
+		}
+	}
+	fmt.Printf(">> %s -- stats: %#v\n", url, stats)
+	return revStats, nil
 }

@@ -125,7 +125,6 @@ func (t *TimedFloat64Buckets) Record(now time.Time, value float64) {
 	defer t.bucketsMutex.Unlock()
 
 	writeIdx := t.timeToIndex(now)
-
 	if t.lastWrite != bucketTime {
 		if t.firstWrite.IsZero() {
 			t.firstWrite = bucketTime

@@ -55,6 +55,8 @@ type Stat struct {
 	// are contributing to the metrics.
 	PodName string
 
+	RevisionName string
+
 	// Average number of requests currently being handled by this pod.
 	AverageConcurrentRequests float64
 
@@ -71,7 +73,10 @@ type Stat struct {
 	ProcessUptime float64
 }
 
-var emptyStat = Stat{}
+var (
+	emptyStat     = Stat{}
+	emptyBulkStat = map[string][]Stat{}
+)
 
 // StatMessage wraps a Stat with identifying information so it can be routed
 // to the correct receiver.
@@ -309,24 +314,45 @@ func newCollection(metric *av1alpha1.Metric, scraper StatsScraper, tickFactory f
 				scrapeTicker.Stop()
 				return
 			case <-scrapeTicker.C:
-				currentMetric := c.currentMetric()
-				if currentMetric.Spec.ScrapeTarget == "" {
-					// Don't scrape empty target service.
-					if c.updateLastError(nil) {
-						callback(key)
-					}
-					continue
-				}
-				stat, err := c.getScraper().Scrape(currentMetric.Spec.StableWindow)
+				stat, err := c.getScraper().Report(metric)
 				if err != nil {
+					copy := metric.DeepCopy()
+					switch {
+					case err == ErrFailedGetEndpoints:
+						copy.Status.MarkMetricNotReady("NoEndpoints", ErrFailedGetEndpoints.Error())
+					case err == ErrDidNotReceiveStat:
+						copy.Status.MarkMetricFailed("DidNotReceiveStat", ErrDidNotReceiveStat.Error())
+					default:
+						copy.Status.MarkMetricNotReady("CreateOrUpdateFailed", "Collector has failed.")
+					}
 					logger.Errorw("Failed to scrape metrics", zap.Error(err))
+					c.updateMetric(copy)
 				}
-				if c.updateLastError(err) {
-					callback(key)
-				}
+				println(">> collecting bulk data ...")
+				// TODOTARA
+				println(">> recording stat for: ", stat.RevisionName, stat.PodName, stat.RequestCount, stat.ProxiedRequestCount, stat.Time.String())
 				if stat != emptyStat {
 					c.record(stat)
 				}
+			//case <-scrapeTicker.C:
+			//	currentMetric := c.currentMetric()
+			//	if currentMetric.Spec.ScrapeTarget == "" {
+			//		// Don't scrape empty target service.
+			//		if c.updateLastError(nil) {
+			//			callback(key)
+			//		}
+			//		continue
+			//	}
+			//	stat, err := c.getScraper().Scrape(currentMetric.Spec.StableWindow)
+			//	if err != nil {
+			//		logger.Errorw("Failed to scrape metrics", zap.Error(err))
+			//	}
+			//	if c.updateLastError(err) {
+			//		callback(key)
+			//	}
+			//	if stat != emptyStat {
+			//		c.record(stat)
+			//	}
 			}
 		}
 	}()

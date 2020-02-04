@@ -86,6 +86,8 @@ type Config struct {
 	ScaleToZeroGracePeriod time.Duration
 
 	PodAutoscalerClass string
+
+	EnableDaemonsetScraper bool  // TODOTARA cont here
 }
 
 func defaultConfig() *Config {

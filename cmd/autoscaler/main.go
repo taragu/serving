@@ -33,12 +33,11 @@ import (
 
 	"k8s.io/apimachinery/pkg/util/wait"
 	corev1informers "k8s.io/client-go/informers/core/v1"
-	corev1listers "k8s.io/client-go/listers/core/v1"
 	"k8s.io/client-go/rest"
 
 	kubeclient "knative.dev/pkg/client/injection/kube/client"
 	endpointsinformer "knative.dev/pkg/client/injection/kube/informers/core/v1/endpoints"
-	podinformer "knative.dev/pkg/client/injection/kube/informers/core/v1/pod"
+	podsinformer "knative.dev/pkg/client/injection/kube/informers/core/v1/pod"
 	"knative.dev/pkg/injection"
 	"knative.dev/pkg/injection/sharedmain"
 
@@ -50,7 +49,6 @@ import (
 	"knative.dev/pkg/signals"
 	"knative.dev/pkg/system"
 	"knative.dev/pkg/version"
-	av1alpha1 "knative.dev/serving/pkg/apis/autoscaling/v1alpha1"
 	"knative.dev/serving/pkg/apis/serving"
 	asmetrics "knative.dev/serving/pkg/autoscaler/metrics"
 	"knative.dev/serving/pkg/autoscaler/scaling"
@@ -58,7 +56,6 @@ import (
 	smetrics "knative.dev/serving/pkg/metrics"
 	"knative.dev/serving/pkg/reconciler/autoscaling/kpa"
 	"knative.dev/serving/pkg/reconciler/metric"
-	"knative.dev/serving/pkg/resources"
 )
 
 const (
@@ -141,10 +138,11 @@ func main() {
 		profilingHandler.UpdateFromConfigMap)
 
 	endpointsInformer := endpointsinformer.Get(ctx)
-	podInformer := podinformer.Get(ctx)
+	podInformer := podsinformer.Get(ctx)
 
 	collector := asmetrics.NewMetricCollector(
-		statsScraperFactoryFunc(endpointsInformer.Lister(), podInformer.Lister()), logger)
+		statsScraperFactoryFunc(endpointsInformer.Lister(), podInformer.Lister()), logger, time.NewTicker)
+	go collector.BulkScrape(ctx)
 	customMetricsAdapter.WithCustomMetrics(asmetrics.NewMetricProvider(collector))
 
 	// Set up scalers.
@@ -222,6 +220,7 @@ func uniScalerFactoryFunc(endpointsInformer corev1informers.EndpointsInformer,
 	}
 }
 
+<<<<<<< HEAD
 func statsScraperFactoryFunc(endpointsLister corev1listers.EndpointsLister,
 	podLister corev1listers.PodLister) asmetrics.StatsScraperFactory {
 	return func(metric *av1alpha1.Metric, logger *zap.SugaredLogger) (asmetrics.StatsScraper, error) {
@@ -234,6 +233,8 @@ func statsScraperFactoryFunc(endpointsLister corev1listers.EndpointsLister,
 	}
 }
 
+=======
+>>>>>>> 3b8ae031a... wip
 func flush(logger *zap.SugaredLogger) {
 	logger.Sync()
 	metrics.FlushExporter()

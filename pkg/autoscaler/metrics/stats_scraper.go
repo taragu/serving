@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"k8s.io/apimachinery/pkg/labels"
+	"knative.dev/pkg/logging"
 	"net/http"
 	"strconv"
 	"sync"
@@ -93,6 +95,9 @@ type StatsScraper interface {
 	// Scrape scrapes the Revision queue metric endpoint. The duration is used
 	// to cutoff young pods, whose stats might skew lower.
 	Scrape(time.Duration) (Stat, error)
+
+	// BulkScrape collects stats from DaemonSet scraper pod and stores the stats.
+	BulkScrape(context.Context)
 }
 
 // scrapeClient defines the interface for collecting Revision metrics for a given
@@ -100,6 +105,9 @@ type StatsScraper interface {
 type scrapeClient interface {
 	// Scrape scrapes the given URL.
 	Scrape(url string) (Stat, error)
+	// BulkScrape scrapes a given DaemonSet scraper endpoint and returns a map of
+	// revision name to stats, as well as error.
+	BulkScrape(url string) (map[string][]Stat, error)
 }
 
 // cacheDisabledClient is a http client with cache disabled. It is shared by
@@ -125,17 +133,20 @@ type serviceScraper struct {
 
 	podAccessor     resources.PodAccessor
 	podsAddressable bool
+
+	revMap          sync.Map
+	tickProvider    func(time.Duration) *time.Ticker
 }
 
 // NewStatsScraper creates a new StatsScraper for the Revision which
 // the given Metric is responsible for.
 func NewStatsScraper(metric *av1alpha1.Metric, counter resources.EndpointsCounter,
-	podAccessor resources.PodAccessor, logger *zap.SugaredLogger) (StatsScraper, error) {
+	podAccessor resources.PodAccessor, logger *zap.SugaredLogger, tickProvider func(time.Duration) *time.Ticker) (StatsScraper, error) {
 	sClient, err := newHTTPScrapeClient(cacheDisabledClient)
 	if err != nil {
 		return nil, err
 	}
-	return newServiceScraperWithClient(metric, counter, podAccessor, sClient, logger)
+	return newServiceScraperWithClient(metric, counter, podAccessor, sClient, logger, tickProvider)
 }
 
 func newServiceScraperWithClient(
@@ -143,7 +154,8 @@ func newServiceScraperWithClient(
 	counter resources.EndpointsCounter,
 	podAccessor resources.PodAccessor,
 	sClient scrapeClient,
-	logger *zap.SugaredLogger) (*serviceScraper, error) {
+	logger *zap.SugaredLogger,
+	tickProvider func(time.Duration) *time.Ticker) (*serviceScraper, error) {
 	if metric == nil {
 		return nil, errors.New("metric must not be nil")
 	}
@@ -173,6 +185,8 @@ func newServiceScraperWithClient(
 		podsAddressable: true,
 		statsCtx:        ctx,
 		logger:          logger,
+		revMap:          sync.Map{},
+		tickProvider:    tickProvider,
 	}, nil
 }
 
@@ -394,4 +408,108 @@ func (s *serviceScraper) tryScrape(scrapedPods *sync.Map) (Stat, error) {
 	}
 
 	return stat, nil
+}
+
+// Report processes the collected stats and return an aggregated Stat for a revision.
+func (s *serviceScraper) Report(metric *av1alpha1.Metric) (Stat, error) {
+	revisionName := metric.ObjectMeta.Labels[serving.RevisionLabelKey]
+	pods, err := s.podAccessor.PodIPsByAge()
+	if err != nil {
+		s.logger.Info("Error querying pods by age: ", err)
+		return emptyStat, err
+	}
+	// Race condition when scaling to 0, where the check above
+	// for endpoint count worked, but here we had no ready pods.
+	if len(pods) == 0 {
+		s.logger.Infof("Found 0 pods, are we scaling to 0?")
+		return emptyStat, nil
+	}
+	frpc := float64(len(pods))
+	if v, ok := s.revMap.Load(revisionName); ok {
+		var (
+			avgConcurrency        float64
+			avgProxiedConcurrency float64
+			reqCount              float64
+			proxiedReqCount       float64
+		)
+		stats := v.([]Stat)
+		for _, stat := range stats {
+			println(">> processing stat for: ", stat.RevisionName, stat.PodName, stat.RequestCount, stat.ProxiedRequestCount, stat.Time.String())
+			avgConcurrency += stat.AverageConcurrentRequests
+			avgProxiedConcurrency += stat.AverageProxiedConcurrentRequests
+			reqCount += stat.RequestCount
+			proxiedReqCount += stat.ProxiedRequestCount
+		}
+		fcount := float64(len(stats))
+		avgConcurrency = avgConcurrency / fcount
+		avgProxiedConcurrency = avgProxiedConcurrency / fcount
+		reqCount = reqCount / fcount
+		proxiedReqCount = proxiedReqCount / fcount
+		stat := Stat{
+			Time:                             time.Now(),
+			RevisionName:                     revisionName,
+			PodName:                          scraperPodName,
+			AverageConcurrentRequests:        avgConcurrency * frpc,
+			AverageProxiedConcurrentRequests: avgProxiedConcurrency * frpc,
+			RequestCount:                     reqCount * frpc,
+			ProxiedRequestCount:              proxiedReqCount * frpc,
+		}
+		// TODO nimak - there is probably some race here when deleting
+		// revision stats
+		defer s.revMap.Delete(revisionName)
+		return stat, nil
+	}
+	return emptyStat, fmt.Errorf("no metrics for revision %s", revisionName)
+}
+
+// BulkScrape collects stats from DaemonSet scraper pod and stores the stats.
+func (s *serviceScraper) BulkScrape(ctx context.Context) {
+	logger := logging.FromContext(ctx)
+	ticker := s.tickProvider(scrapeTickInterval)
+	for {
+		select {
+		case <-ticker.C:
+			logger.Infof(">> bulk scrape ...")
+			pods, err := s.podAccessor.PodIPsByAge()
+			if err != nil {
+				s.logger.Info("Error querying pods by age: ", err)
+				continue
+			}
+			logger.Infof(">> len(pods): %d", len(pods))
+			grp := errgroup.Group{}
+			for _, p := range pods {
+				p := p
+				grp.Go(func() error {
+					// TODO nimak: fix the port here
+					// TODOTARA add get running pods from podaccessor
+					url := fmt.Sprintf("http://%s:%s/", p.Status.PodIP, "8101")
+					fmt.Printf(">> scrape-url: %s\n", url)
+					revMap, err := s.tryBulkScrape(url)
+					if err != nil {
+						fmt.Printf("error scraping %s: %v\n", url, err)
+						return err
+					}
+					for rev, stats := range revMap {
+						var revStats []Stat
+						if v, ok := s.revMap.Load(rev); ok {
+							revStats = v.([]Stat)
+						}
+						revStats = append(revStats, stats...)
+						s.revMap.Store(rev, revStats)
+					}
+					return nil
+				})
+			}
+
+			if err := grp.Wait(); err != nil {
+				logger.Errorf("scraping failed: %w", err)
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (s *serviceScraper) tryBulkScrape(url string) (map[string][]Stat, error) {
+	return s.sClient.BulkScrape(url)
 }
