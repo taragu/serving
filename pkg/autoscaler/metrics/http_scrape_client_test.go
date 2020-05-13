@@ -68,14 +68,14 @@ func TestNewHTTPScrapeClient_ErrorCases(t *testing.T) {
 
 	for _, test := range testCases {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := newHTTPScrapeClient(test.client); err != nil {
+			if _, err := NewHTTPScrapeClient(test.client); err != nil {
 				got := err.Error()
 				want := test.expectedErr
 				if got != want {
 					t.Errorf("Got error message: %v. Want: %v", got, want)
 				}
 			} else {
-				t.Error("Expected error from newHTTPScrapeClient, got nil")
+				t.Error("Expected error from NewHTTPScrapeClient, got nil")
 			}
 		})
 	}
@@ -83,9 +83,9 @@ func TestNewHTTPScrapeClient_ErrorCases(t *testing.T) {
 
 func TestHTTPScrapeClientScrapeHappyCase(t *testing.T) {
 	hClient := newTestHTTPClient(getHTTPResponse(http.StatusOK, testFullContext), nil)
-	sClient, err := newHTTPScrapeClient(hClient)
+	sClient, err := NewHTTPScrapeClient(hClient)
 	if err != nil {
-		t.Fatalf("newHTTPScrapeClient = %v, want no error", err)
+		t.Fatalf("NewHTTPScrapeClient = %v, want no error", err)
 	}
 
 	stat, err := sClient.Scrape(testURL)
@@ -114,9 +114,9 @@ func TestHTTPScrapeClientScrapeHappyCase(t *testing.T) {
 
 func TestHTTPScrapeClientScrapeHappyCaseWithOptionals(t *testing.T) {
 	hClient := newTestHTTPClient(getHTTPResponse(http.StatusOK, testOptionalContext), nil)
-	sClient, err := newHTTPScrapeClient(hClient)
+	sClient, err := NewHTTPScrapeClient(hClient)
 	if err != nil {
-		t.Fatalf("newHTTPScrapeClient = %v, want no error", err)
+		t.Fatalf("NewHTTPScrapeClient = %v, want no error", err)
 	}
 
 	stat, err := sClient.Scrape(testURL)
@@ -189,9 +189,9 @@ func TestHTTPScrapeClient_Scrape_ErrorCases(t *testing.T) {
 	for _, test := range testCases {
 		t.Run(test.name, func(t *testing.T) {
 			hClient := newTestHTTPClient(getHTTPResponse(test.responseCode, test.responseContext), test.responseErr)
-			sClient, err := newHTTPScrapeClient(hClient)
+			sClient, err := NewHTTPScrapeClient(hClient)
 			if err != nil {
-				t.Errorf("newHTTPScrapeClient=%v, want no error", err)
+				t.Errorf("NewHTTPScrapeClient=%v, want no error", err)
 			}
 			if _, err := sClient.Scrape(testURL); err != nil {
 				if !strings.Contains(err.Error(), test.expectedErr) {

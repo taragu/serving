@@ -98,3 +98,32 @@ func (pc PodAccessor) PodIPsByAge() ([]string, error) {
 
 	return ret, nil
 }
+
+func (pc PodAccessor) PodsByAge() ([]*corev1.Pod, error) {
+	pods, err := pc.podsLister.List(pc.selector)
+	if err != nil {
+		return nil, err
+	}
+	// Keep only running ones.
+	write := 0
+	for _, p := range pods {
+		if p.Status.Phase == corev1.PodRunning && p.DeletionTimestamp == nil {
+			pods[write] = p
+			write++
+		}
+	}
+	pods = pods[:write]
+
+	if len(pods) > 1 {
+		// This results in a few reflection calls, which we can easily avoid.
+		sort.SliceStable(pods, func(i, j int) bool {
+			return pods[i].Status.StartTime.Before(pods[j].Status.StartTime)
+		})
+	}
+	ret := make([]*corev1.Pod, 0, len(pods))
+	for _, p := range pods {
+		ret = append(ret, p)
+	}
+
+	return ret, nil
+}

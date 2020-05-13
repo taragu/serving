@@ -114,7 +114,7 @@ type MetricClient interface {
 type MetricCollector struct {
 	logger *zap.SugaredLogger
 
-	statsScraperFactory StatsScraperFactory
+	statsScraper StatsScraper
 	tickProvider        func(time.Duration) *time.Ticker
 
 	collections      map[types.NamespacedName]*collection
@@ -128,11 +128,11 @@ var _ Collector = (*MetricCollector)(nil)
 var _ MetricClient = (*MetricCollector)(nil)
 
 // NewMetricCollector creates a new metric collector.
-func NewMetricCollector(statsScraperFactory StatsScraperFactory, logger *zap.SugaredLogger) *MetricCollector {
+func NewMetricCollector(statsScraper StatsScraper, logger *zap.SugaredLogger) *MetricCollector {
 	return &MetricCollector{
 		logger:              logger,
 		collections:         make(map[types.NamespacedName]*collection),
-		statsScraperFactory: statsScraperFactory,
+		statsScraper: statsScraper,
 		tickProvider:        time.NewTicker,
 	}
 }
@@ -141,17 +141,17 @@ func NewMetricCollector(statsScraperFactory StatsScraperFactory, logger *zap.Sug
 // it already exist.
 // Map access optimized via double-checked locking.
 func (c *MetricCollector) CreateOrUpdate(metric *av1alpha1.Metric) error {
-	scraper, err := c.statsScraperFactory(metric, c.logger)
-	if err != nil {
-		return err
-	}
+	//scraper, err := c.statsScraperFactory(metric, c.logger)
+	//if err != nil {
+	//	return err
+	//}
 	key := types.NamespacedName{Namespace: metric.Namespace, Name: metric.Name}
 
 	c.collectionsMutex.RLock()
 	collection, exists := c.collections[key]
 	c.collectionsMutex.RUnlock()
 	if exists {
-		collection.updateScraper(scraper)
+		collection.updateScraper(c.statsScraper)
 		collection.updateMetric(metric)
 		return collection.lastError()
 	}
@@ -161,12 +161,12 @@ func (c *MetricCollector) CreateOrUpdate(metric *av1alpha1.Metric) error {
 
 	collection, exists = c.collections[key]
 	if exists {
-		collection.updateScraper(scraper)
+		collection.updateScraper(c.statsScraper)
 		collection.updateMetric(metric)
 		return collection.lastError()
 	}
 
-	c.collections[key] = newCollection(metric, scraper, c.tickProvider, c.Inform, c.logger)
+	c.collections[key] = newCollection(metric, c.statsScraper, c.tickProvider, c.Inform, c.logger)
 	return nil
 }
 
@@ -328,9 +328,9 @@ func newCollection(metric *av1alpha1.Metric, scraper StatsScraper, tickFactory f
 					logger.Errorw("Failed to scrape metrics", zap.Error(err))
 					c.updateMetric(copy)
 				}
-				println(">> collecting bulk data ...")
+				println(">> TARALOG collecting bulk data ...")
 				// TODOTARA
-				println(">> recording stat for: ", stat.RevisionName, stat.PodName, stat.RequestCount, stat.ProxiedRequestCount, stat.Time.String())
+				println(">> TARALOG recording stat for: ", stat.RevisionName, stat.PodName, stat.RequestCount, stat.ProxiedRequestCount, stat.Time.String())
 				if stat != emptyStat {
 					c.record(stat)
 				}

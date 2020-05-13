@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"k8s.io/apimachinery/pkg/labels"
-	"knative.dev/pkg/logging"
 	"net/http"
 	"strconv"
 	"sync"
@@ -33,6 +32,8 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
+	corev1listers "k8s.io/client-go/listers/core/v1"
+	"knative.dev/pkg/logging"
 	pkgmetrics "knative.dev/pkg/metrics"
 	av1alpha1 "knative.dev/serving/pkg/apis/autoscaling/v1alpha1"
 	"knative.dev/serving/pkg/apis/networking"
@@ -98,6 +99,8 @@ type StatsScraper interface {
 
 	// BulkScrape collects stats from DaemonSet scraper pod and stores the stats.
 	BulkScrape(context.Context)
+
+	Report(*av1alpha1.Metric) (Stat, error)
 }
 
 // scrapeClient defines the interface for collecting Revision metrics for a given
@@ -134,19 +137,67 @@ type serviceScraper struct {
 	podAccessor     resources.PodAccessor
 	podsAddressable bool
 
-	revMap          sync.Map
 	tickProvider    func(time.Duration) *time.Ticker
+}
+
+type bulkScraper struct {
+	podLister corev1listers.PodLister
+	endpointsLister corev1listers.EndpointsLister
+	sClient    scrapeClient
+	revMap     sync.Map
+	logger   *zap.SugaredLogger
 }
 
 // NewStatsScraper creates a new StatsScraper for the Revision which
 // the given Metric is responsible for.
 func NewStatsScraper(metric *av1alpha1.Metric, counter resources.EndpointsCounter,
 	podAccessor resources.PodAccessor, logger *zap.SugaredLogger, tickProvider func(time.Duration) *time.Ticker) (StatsScraper, error) {
-	sClient, err := newHTTPScrapeClient(cacheDisabledClient)
+	sClient, err := NewHTTPScrapeClient(cacheDisabledClient)
 	if err != nil {
 		return nil, err
 	}
 	return newServiceScraperWithClient(metric, counter, podAccessor, sClient, logger, tickProvider)
+}
+
+func (s *serviceScraper) Report(metric *av1alpha1.Metric) (Stat, error) {
+	return emptyStat, nil
+}
+
+func (s *serviceScraper) BulkScrape(ctx context.Context) {
+}
+
+
+func NewBulkScraper(podLister corev1listers.PodLister, endpointsLister corev1listers.EndpointsLister, logger *zap.SugaredLogger) (StatsScraper, error) {
+	sClient, err := NewHTTPScrapeClient(cacheDisabledClient)
+	if err != nil {
+		return nil, err
+	}
+	return newBulkScraperWithClient(podLister, endpointsLister, sClient, logger)
+}
+
+
+
+func newBulkScraperWithClient(
+	podLister corev1listers.PodLister,
+    endpointsLister corev1listers.EndpointsLister,
+	sClient scrapeClient,
+	logger *zap.SugaredLogger) (*bulkScraper, error) {
+	if podLister == nil {
+		return nil, errors.New("pod lister must not be nil")
+	}
+	if endpointsLister == nil {
+		return nil, errors.New("endpoints lister must not be nil")
+	}
+	if sClient == nil {
+		return nil, errors.New("scrape client must not be nil")
+	}
+	return &bulkScraper{
+		sClient:         sClient,
+		podLister: podLister,
+		endpointsLister: endpointsLister,
+		revMap:     sync.Map{},
+		logger: logger,
+	}, nil
 }
 
 func newServiceScraperWithClient(
@@ -185,7 +236,6 @@ func newServiceScraperWithClient(
 		podsAddressable: true,
 		statsCtx:        ctx,
 		logger:          logger,
-		revMap:          sync.Map{},
 		tickProvider:    tickProvider,
 	}, nil
 }
@@ -411,20 +461,14 @@ func (s *serviceScraper) tryScrape(scrapedPods *sync.Map) (Stat, error) {
 }
 
 // Report processes the collected stats and return an aggregated Stat for a revision.
-func (s *serviceScraper) Report(metric *av1alpha1.Metric) (Stat, error) {
+func (s *bulkScraper) Report(metric *av1alpha1.Metric) (Stat, error) {
 	revisionName := metric.ObjectMeta.Labels[serving.RevisionLabelKey]
-	pods, err := s.podAccessor.PodIPsByAge()
+	readyPodCount, err := resources.NewScopedEndpointsCounter(
+		s.endpointsLister, metric.Namespace, metric.Spec.ScrapeTarget).ReadyCount()
 	if err != nil {
-		s.logger.Info("Error querying pods by age: ", err)
 		return emptyStat, err
 	}
-	// Race condition when scaling to 0, where the check above
-	// for endpoint count worked, but here we had no ready pods.
-	if len(pods) == 0 {
-		s.logger.Infof("Found 0 pods, are we scaling to 0?")
-		return emptyStat, nil
-	}
-	frpc := float64(len(pods))
+	frpc := float64(readyPodCount)
 	if v, ok := s.revMap.Load(revisionName); ok {
 		var (
 			avgConcurrency        float64
@@ -463,18 +507,38 @@ func (s *serviceScraper) Report(metric *av1alpha1.Metric) (Stat, error) {
 }
 
 // BulkScrape collects stats from DaemonSet scraper pod and stores the stats.
-func (s *serviceScraper) BulkScrape(ctx context.Context) {
+func (s *bulkScraper) BulkScrape(ctx context.Context) {
 	logger := logging.FromContext(ctx)
-	ticker := s.tickProvider(scrapeTickInterval)
+	//revName := metric.Labels[serving.RevisionLabelKey]
+	//if revName == "" {
+	//	s.logger.Errorf("no Revision label found for Metric %q", metric.Name)
+	//}
+	//svcName := metric.Labels[serving.ServiceLabelKey]
+	//cfgName := metric.Labels[serving.ConfigurationLabelKey]
+	//
+	//ctx, err := metrics.RevisionContext(metric.ObjectMeta.Namespace, svcName, cfgName, revName)
+	//if err != nil {
+	//	s.logger.Errorf("error getting RevisionContext: %v", err)
+	//}
+	ticker := time.NewTicker(scrapeTickInterval)
 	for {
 		select {
 		case <-ticker.C:
 			logger.Infof(">> bulk scrape ...")
-			pods, err := s.podAccessor.PodIPsByAge()
+			pods, err := s.podLister.Pods("knative-serving").List(labels.SelectorFromSet(labels.Set{
+				"knative.dev/scraper": "devel",
+			}))
 			if err != nil {
-				s.logger.Info("Error querying pods by age: ", err)
+				logger.Errorf("failed listing pods %v", err)
 				continue
 			}
+			//allPods, err := s.podLister.List(labels.Everything())
+			//if err != nil {
+			//	logger.Errorf("failed listing allpods %v", err)
+			//	continue
+			//}
+			//logger.Infof(">>  len(allPods): %d", len(allPods))
+
 			logger.Infof(">> len(pods): %d", len(pods))
 			grp := errgroup.Group{}
 			for _, p := range pods {
@@ -510,6 +574,10 @@ func (s *serviceScraper) BulkScrape(ctx context.Context) {
 	}
 }
 
-func (s *serviceScraper) tryBulkScrape(url string) (map[string][]Stat, error) {
+func (s *bulkScraper) tryBulkScrape(url string) (map[string][]Stat, error) {
 	return s.sClient.BulkScrape(url)
+}
+
+func (s *bulkScraper) Scrape(window time.Duration) (Stat, error) {
+	return emptyStat, nil
 }

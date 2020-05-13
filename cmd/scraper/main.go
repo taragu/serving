@@ -42,7 +42,7 @@ import (
 	"knative.dev/serving/cmd/scraper/stats"
 	"knative.dev/serving/pkg/apis/networking"
 	"knative.dev/serving/pkg/apis/serving"
-	"knative.dev/serving/pkg/autoscaler"
+	asmetrics "knative.dev/serving/pkg/autoscaler/metrics"
 )
 
 var (
@@ -180,7 +180,7 @@ func (s *metricsScraper) pollMetricsData(ctx context.Context, logger *zap.Sugare
 		return err
 	}
 
-	sClient, err := autoscaler.NewHTTPScrapeClient(cacheDisabledClient)
+	sClient, err := asmetrics.NewHTTPScrapeClient(cacheDisabledClient)
 	if err != nil {
 		return err
 	}
