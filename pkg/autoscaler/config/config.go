@@ -87,13 +87,14 @@ type Config struct {
 
 	PodAutoscalerClass string
 
-	EnableDaemonsetScraper bool  // TODOTARA cont here
+	EnableDaemonsetScraper bool
 }
 
 func defaultConfig() *Config {
 	return &Config{
 		EnableScaleToZero:                  true,
 		EnableGracefulScaledown:            false,
+		EnableDaemonsetScraper:             false,
 		ContainerConcurrencyTargetFraction: defaultTargetUtilization,
 		ContainerConcurrencyTargetDefault:  100,
 		// TODO(#1956): Tune target usage based on empirical data.
@@ -133,6 +134,9 @@ func NewConfigFromMap(data map[string]string) (*Config, error) {
 		}, {
 			key:   "allow-zero-initial-scale",
 			field: &lc.AllowZeroInitialScale,
+		}, {
+			key:   "enable-daemonset-scraper",
+			field: &lc.EnableDaemonsetScraper,
 		}} {
 		if raw, ok := data[b.key]; ok {
 			*b.field = strings.EqualFold(raw, "true")

@@ -137,15 +137,15 @@ type serviceScraper struct {
 	podAccessor     resources.PodAccessor
 	podsAddressable bool
 
-	tickProvider    func(time.Duration) *time.Ticker
+	tickProvider func(time.Duration) *time.Ticker
 }
 
 type bulkScraper struct {
-	podLister corev1listers.PodLister
+	podLister       corev1listers.PodLister
 	endpointsLister corev1listers.EndpointsLister
-	sClient    scrapeClient
-	revMap     sync.Map
-	logger   *zap.SugaredLogger
+	sClient         scrapeClient
+	revMap          sync.Map
+	logger          *zap.SugaredLogger
 }
 
 // NewStatsScraper creates a new StatsScraper for the Revision which
@@ -166,7 +166,6 @@ func (s *serviceScraper) Report(metric *av1alpha1.Metric) (Stat, error) {
 func (s *serviceScraper) BulkScrape(ctx context.Context) {
 }
 
-
 func NewBulkScraper(podLister corev1listers.PodLister, endpointsLister corev1listers.EndpointsLister, logger *zap.SugaredLogger) (StatsScraper, error) {
 	sClient, err := NewHTTPScrapeClient(cacheDisabledClient)
 	if err != nil {
@@ -175,11 +174,9 @@ func NewBulkScraper(podLister corev1listers.PodLister, endpointsLister corev1lis
 	return newBulkScraperWithClient(podLister, endpointsLister, sClient, logger)
 }
 
-
-
 func newBulkScraperWithClient(
 	podLister corev1listers.PodLister,
-    endpointsLister corev1listers.EndpointsLister,
+	endpointsLister corev1listers.EndpointsLister,
 	sClient scrapeClient,
 	logger *zap.SugaredLogger) (*bulkScraper, error) {
 	if podLister == nil {
@@ -193,10 +190,10 @@ func newBulkScraperWithClient(
 	}
 	return &bulkScraper{
 		sClient:         sClient,
-		podLister: podLister,
+		podLister:       podLister,
 		endpointsLister: endpointsLister,
-		revMap:     sync.Map{},
-		logger: logger,
+		revMap:          sync.Map{},
+		logger:          logger,
 	}, nil
 }
 

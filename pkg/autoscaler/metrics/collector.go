@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -114,7 +115,9 @@ type MetricClient interface {
 type MetricCollector struct {
 	logger *zap.SugaredLogger
 
-	statsScraper StatsScraper
+	statsScraper        StatsScraper
+	statsScraperFactory StatsScraperFactory
+	bulkScrape          bool
 	tickProvider        func(time.Duration) *time.Ticker
 
 	collections      map[types.NamespacedName]*collection
@@ -128,11 +131,17 @@ var _ Collector = (*MetricCollector)(nil)
 var _ MetricClient = (*MetricCollector)(nil)
 
 // NewMetricCollector creates a new metric collector.
-func NewMetricCollector(statsScraper StatsScraper, logger *zap.SugaredLogger) *MetricCollector {
+func NewMetricCollector(statsScraper StatsScraper, statsScraperFactory StatsScraperFactory, logger *zap.SugaredLogger) *MetricCollector {
+	bulkScrape := false
+	if statsScraper != nil {
+		bulkScrape = true
+	}
 	return &MetricCollector{
 		logger:              logger,
 		collections:         make(map[types.NamespacedName]*collection),
-		statsScraper: statsScraper,
+		statsScraper:        statsScraper,
+		statsScraperFactory: statsScraperFactory,
+		bulkScrape:          bulkScrape,
 		tickProvider:        time.NewTicker,
 	}
 }
@@ -141,10 +150,13 @@ func NewMetricCollector(statsScraper StatsScraper, logger *zap.SugaredLogger) *M
 // it already exist.
 // Map access optimized via double-checked locking.
 func (c *MetricCollector) CreateOrUpdate(metric *av1alpha1.Metric) error {
-	//scraper, err := c.statsScraperFactory(metric, c.logger)
-	//if err != nil {
-	//	return err
-	//}
+	if c.statsScraper == nil {
+		var err error
+		c.statsScraper, err = c.statsScraperFactory(metric, c.logger)
+		if err != nil {
+			return err
+		}
+	}
 	key := types.NamespacedName{Namespace: metric.Namespace, Name: metric.Name}
 
 	c.collectionsMutex.RLock()
@@ -166,7 +178,7 @@ func (c *MetricCollector) CreateOrUpdate(metric *av1alpha1.Metric) error {
 		return collection.lastError()
 	}
 
-	c.collections[key] = newCollection(metric, c.statsScraper, c.tickProvider, c.Inform, c.logger)
+	c.collections[key] = newCollection(metric, c.statsScraper, c.bulkScrape, c.tickProvider, c.Inform, c.logger)
 	return nil
 }
 
@@ -260,6 +272,7 @@ type collection struct {
 
 	scraperMutex            sync.RWMutex
 	scraper                 StatsScraper
+	bulkScrape              bool
 	concurrencyBuckets      *aggregation.TimedFloat64Buckets
 	concurrencyPanicBuckets *aggregation.TimedFloat64Buckets
 	rpsBuckets              *aggregation.TimedFloat64Buckets
@@ -283,7 +296,7 @@ func (c *collection) getScraper() StatsScraper {
 
 // newCollection creates a new collection, which uses the given scraper to
 // collect stats every scrapeTickInterval.
-func newCollection(metric *av1alpha1.Metric, scraper StatsScraper, tickFactory func(time.Duration) *time.Ticker,
+func newCollection(metric *av1alpha1.Metric, scraper StatsScraper, bulkScrape bool, tickFactory func(time.Duration) *time.Ticker,
 	callback func(types.NamespacedName), logger *zap.SugaredLogger) *collection {
 	c := &collection{
 		metric: metric,
@@ -295,7 +308,8 @@ func newCollection(metric *av1alpha1.Metric, scraper StatsScraper, tickFactory f
 			metric.Spec.StableWindow, config.BucketSize),
 		rpsPanicBuckets: aggregation.NewTimedFloat64Buckets(
 			metric.Spec.PanicWindow, config.BucketSize),
-		scraper: scraper,
+		scraper:    scraper,
+		bulkScrape: bulkScrape,
 
 		stopCh: make(chan struct{}),
 	}
@@ -314,45 +328,35 @@ func newCollection(metric *av1alpha1.Metric, scraper StatsScraper, tickFactory f
 				scrapeTicker.Stop()
 				return
 			case <-scrapeTicker.C:
-				stat, err := c.getScraper().Report(metric)
-				if err != nil {
-					copy := metric.DeepCopy()
-					switch {
-					case err == ErrFailedGetEndpoints:
-						copy.Status.MarkMetricNotReady("NoEndpoints", ErrFailedGetEndpoints.Error())
-					case err == ErrDidNotReceiveStat:
-						copy.Status.MarkMetricFailed("DidNotReceiveStat", ErrDidNotReceiveStat.Error())
-					default:
-						copy.Status.MarkMetricNotReady("CreateOrUpdateFailed", "Collector has failed.")
+				var stat Stat
+				var err error
+				if c.bulkScrape {
+					fmt.Printf("\n\n\n\n\n TARALOG newCollection bulk scraping \n\n\n")
+					stat, err = c.getScraper().Report(metric)
+					if stat != emptyStat {
+						println(">> TARALOG going to record bulk stat for: ", stat.RevisionName, stat.PodName, stat.RequestCount, stat.ProxiedRequestCount, stat.Time.String())
 					}
-					logger.Errorw("Failed to scrape metrics", zap.Error(err))
-					c.updateMetric(copy)
+				} else {
+					fmt.Printf("\n\n\n\n\n TARALOG newCollection regular scraping \n\n\n")
+					currentMetric := c.currentMetric()
+					if currentMetric.Spec.ScrapeTarget == "" {
+						// Don't scrape empty target service.
+						if c.updateLastError(nil) {
+							callback(key)
+						}
+						continue
+					}
+					stat, err = c.getScraper().Scrape(currentMetric.Spec.StableWindow)
 				}
-				println(">> TARALOG collecting bulk data ...")
-				// TODOTARA
-				println(">> TARALOG recording stat for: ", stat.RevisionName, stat.PodName, stat.RequestCount, stat.ProxiedRequestCount, stat.Time.String())
+				if err != nil {
+					logger.Errorw("Failed to scrape metrics", zap.Error(err))
+				}
+				if c.updateLastError(err) {
+					callback(key)
+				}
 				if stat != emptyStat {
 					c.record(stat)
 				}
-			//case <-scrapeTicker.C:
-			//	currentMetric := c.currentMetric()
-			//	if currentMetric.Spec.ScrapeTarget == "" {
-			//		// Don't scrape empty target service.
-			//		if c.updateLastError(nil) {
-			//			callback(key)
-			//		}
-			//		continue
-			//	}
-			//	stat, err := c.getScraper().Scrape(currentMetric.Spec.StableWindow)
-			//	if err != nil {
-			//		logger.Errorw("Failed to scrape metrics", zap.Error(err))
-			//	}
-			//	if c.updateLastError(err) {
-			//		callback(key)
-			//	}
-			//	if stat != emptyStat {
-			//		c.record(stat)
-			//	}
 			}
 		}
 	}()

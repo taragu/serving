@@ -49,7 +49,7 @@ func newGV(n, h string) *prometheus.GaugeVec {
 	)
 }
 
-// PrometheusStatsReporter structure represents a prometheus stats reporter.
+// PrometheusStatsRecorder structure represents a prometheus stats reporter.
 type PrometheusStatsRecorder struct {
 	startTime       time.Time
 	reportingPeriod time.Duration
@@ -74,7 +74,7 @@ type PrometheusStatsReporter struct {
 	processUptimeGV                    *prometheus.GaugeVec
 }
 
-// NewPrometheusStatsReporter creates a reporter that collects and reports queue metrics.
+// NewPrometheusStatsRecorder ...
 func NewPrometheusStatsRecorder(namespace, config, revision, pod string, r *PrometheusStatsReporter) (*PrometheusStatsRecorder, error) {
 	if namespace == "" {
 		return nil, errors.New("namespace must not be empty")

@@ -32,6 +32,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	corev1informers "k8s.io/client-go/informers/core/v1"
 	corev1listers "k8s.io/client-go/listers/core/v1"
@@ -53,6 +54,7 @@ import (
 	"knative.dev/pkg/version"
 	av1alpha1 "knative.dev/serving/pkg/apis/autoscaling/v1alpha1"
 	"knative.dev/serving/pkg/apis/serving"
+	asconfig "knative.dev/serving/pkg/autoscaler/config"
 	asmetrics "knative.dev/serving/pkg/autoscaler/metrics"
 	"knative.dev/serving/pkg/autoscaler/scaling"
 	"knative.dev/serving/pkg/autoscaler/statserver"
@@ -140,22 +142,31 @@ func main() {
 		metrics.UpdateExporterFromConfigMap(component, logger),
 		profilingHandler.UpdateFromConfigMap)
 
-	endpointsInformer := endpointsinformer.Get(ctx)
-	podsInformer := podsinformer.Get(ctx)
-
-	//go collector.BulkScrape(ctx)
-	//
-	//podCounter := resources.NewScopedEndpointsCounter(
-	//	endpointsInformer.Lister(), metric.Namespace, metric.Spec.ScrapeTarget)
-	//podAccessor := resources.NewPodAccessor(podsInformer.Lister(), metric.Namespace, metric.Name)
-	bulkScraper, err := asmetrics.NewBulkScraper(podsInformer.Lister(), endpointsInformer.Lister(), logger)
-	if err != nil {
-		logger.Fatalw("Failed to get bulkScraper %w", err)
+	asConfigMap, err := kubeclient.Get(ctx).CoreV1().ConfigMaps(system.Namespace()).Get(asconfig.ConfigName, metav1.GetOptions{})
+	if err != nil || asConfigMap == nil {
+		logger.Fatalw("Failed to get autoscaler config: %w", err)
 	}
-	collector := asmetrics.NewMetricCollector(bulkScraper, logger)
-	customMetricsAdapter.WithCustomMetrics(asmetrics.NewMetricProvider(collector))
+	asConfig, err := asconfig.NewConfigFromConfigMap(asConfigMap)
+	if err != nil {
+		logger.Fatalw("Failed to get autoscaler config from config map: %w", err)
+	}
+	fmt.Printf("\n\n\n\n TARALOG asConfig is %#v\n\n\n", asConfig)
+	var collector *asmetrics.MetricCollector
+	endpointsInformer := endpointsinformer.Get(ctx)
+	podInformer := podsinformer.Get(ctx)
+	if asConfig.EnableDaemonsetScraper {
+		bulkScraper, err := asmetrics.NewBulkScraper(podInformer.Lister(), endpointsInformer.Lister(), logger)
+		if err != nil {
+			logger.Fatalw("Failed to get bulkScraper %w", err)
+		}
 
-	go bulkScraper.BulkScrape(ctx)
+		go bulkScraper.BulkScrape(ctx)
+		collector = asmetrics.NewMetricCollector(bulkScraper, nil, logger)
+	} else {
+		collector = asmetrics.NewMetricCollector(nil,
+			statsScraperFactoryFunc(endpointsInformer.Lister(), podInformer.Lister()), logger)
+	}
+	customMetricsAdapter.WithCustomMetrics(asmetrics.NewMetricProvider(collector))
 
 	// Set up scalers.
 	// uniScalerFactory depends endpointsInformer to be set.
