@@ -465,6 +465,15 @@ func (s *bulkScraper) Report(metric *av1alpha1.Metric) (Stat, error) {
 	if err != nil {
 		return emptyStat, err
 	}
+	startTime := time.Now()
+	ctx, err := metrics.RevisionContext(metric.ObjectMeta.Namespace, metric.Labels[serving.ServiceLabelKey], metric.Labels[serving.ConfigurationLabelKey], metric.Labels[serving.RevisionLabelKey])
+	if err != nil {
+		return emptyStat, err
+	}
+	defer func() {
+		scrapeTime := time.Since(startTime)
+		pkgmetrics.RecordBatch(ctx, scrapeTimeM.M(float64(scrapeTime.Milliseconds())))
+	}()
 	frpc := float64(readyPodCount)
 	if v, ok := s.revMap.Load(revisionName); ok {
 		var (
@@ -542,7 +551,6 @@ func (s *bulkScraper) BulkScrape(ctx context.Context) {
 				p := p
 				grp.Go(func() error {
 					// TODO nimak: fix the port here
-					// TODOTARA add get running pods from podaccessor
 					url := fmt.Sprintf("http://%s:%s/", p.Status.PodIP, "8101")
 					fmt.Printf(">> scrape-url: %s\n", url)
 					revMap, err := s.tryBulkScrape(url)
