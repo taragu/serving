@@ -46,11 +46,17 @@ spec:
 
         resources:
           requests:
-            cpu: 300m
-            memory: 60Mi
+            cpu: 30m
+            memory: 40Mi
           limits:
-            cpu: 500m
-            memory: 200Mi
+            cpu: 300m
+            memory: 400Mi
+#          requests:
+#            cpu: 300m
+#            memory: 60Mi
+#          limits:
+#            cpu: 500m
+#            memory: 200Mi
         env:
         # Run Activator with GC collection when newly generated memory is 500%.
         - name: GOGC
@@ -75,6 +81,8 @@ spec:
               fieldPath: metadata.namespace
         - name: CONFIG_LOGGING_NAME
           value: config-logging
+        - name: METRICS_DOMAIN
+          value: knative.dev/serving
 
         securityContext:
           allowPrivilegeEscalation: false
@@ -82,6 +90,8 @@ spec:
         ports:
         - name: scraper
           containerPort: 8101
+        - name: metrics
+          containerPort: 9090
 
         readinessProbe: &probe
           httpGet:

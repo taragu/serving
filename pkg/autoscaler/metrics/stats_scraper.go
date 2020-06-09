@@ -72,17 +72,36 @@ var (
 	errNoPodsScraped = errors.New("no pods scraped")
 	errPodsExhausted = errors.New("pods exhausted")
 
-	scrapeTimeM = stats.Float64(
-		"scrape_time",
-		"Time to scrape metrics in milliseconds",
+	//scrapeTimeM = stats.Float64(
+	//	"scrape_time",
+	//	"Time to scrape metrics in milliseconds",
+	//	stats.UnitMilliseconds)
+	bulkScrapeTimeM = stats.Float64(
+		"bulk_scrape_time",
+		"Time to bulk scrape metrics in milliseconds",
+		stats.UnitMilliseconds)
+	reportBulkScrapeTimeM = stats.Float64(
+		"report_bulk_scrape_time",
+		"Time to report bulk scraped metrics in milliseconds",
 		stats.UnitMilliseconds)
 )
 
 func init() {
 	if err := view.Register(
+		//&view.View{
+		//	Description: "The time to scrape metrics in milliseconds",
+		//	Measure:     scrapeTimeM,
+		//	Aggregation: view.Distribution(pkgmetrics.Buckets125(1, 100000)...),
+		//	TagKeys:     metrics.CommonRevisionKeys,
+		//},
 		&view.View{
-			Description: "The time to scrape metrics in milliseconds",
-			Measure:     scrapeTimeM,
+			Description: "The time to bulk scrape metrics in milliseconds",
+			Measure:     bulkScrapeTimeM,
+			Aggregation: view.Distribution(pkgmetrics.Buckets125(1, 100000)...),
+			TagKeys:     metrics.CommonRevisionKeys,
+		}, &view.View{
+			Description: "The time to report bulk scraped metrics in milliseconds",
+			Measure:     reportBulkScrapeTimeM,
 			Aggregation: view.Distribution(pkgmetrics.Buckets125(1, 100000)...),
 			TagKeys:     metrics.CommonRevisionKeys,
 		},
@@ -255,11 +274,11 @@ func (s *serviceScraper) Scrape(window time.Duration) (Stat, error) {
 		return emptyStat, nil
 	}
 
-	startTime := time.Now()
-	defer func() {
-		scrapeTime := time.Since(startTime)
-		pkgmetrics.RecordBatch(s.statsCtx, scrapeTimeM.M(float64(scrapeTime.Milliseconds())))
-	}()
+	//startTime := time.Now()
+	//defer func() {
+	//	scrapeTime := time.Since(startTime)
+	//	pkgmetrics.RecordBatch(s.statsCtx, scrapeTimeM.M(float64(scrapeTime.Milliseconds())))
+	//}()
 
 	if s.podsAddressable {
 		stat, err := s.scrapePods(readyPodsCount)
@@ -465,14 +484,15 @@ func (s *bulkScraper) Report(metric *av1alpha1.Metric) (Stat, error) {
 	if err != nil {
 		return emptyStat, err
 	}
-	startTime := time.Now()
 	ctx, err := metrics.RevisionContext(metric.ObjectMeta.Namespace, metric.Labels[serving.ServiceLabelKey], metric.Labels[serving.ConfigurationLabelKey], metric.Labels[serving.RevisionLabelKey])
 	if err != nil {
 		return emptyStat, err
 	}
+	//fmt.Printf("\n\n\n\n\n REPORT revName is %s, svcName is %s, configname is %s, ns is %s\n\n\n", metric.Labels[serving.RevisionLabelKey], metric.Labels[serving.ServiceLabelKey], metric.Labels[serving.ConfigurationLabelKey], metric.ObjectMeta.Namespace)
+	startTime := time.Now()
 	defer func() {
-		scrapeTime := time.Since(startTime)
-		pkgmetrics.RecordBatch(ctx, scrapeTimeM.M(float64(scrapeTime.Milliseconds())))
+		reportBulkScrapeTime := time.Since(startTime)
+		pkgmetrics.RecordBatch(ctx, reportBulkScrapeTimeM.M(float64(reportBulkScrapeTime.Milliseconds())))
 	}()
 	frpc := float64(readyPodCount)
 	if v, ok := s.revMap.Load(revisionName); ok {
@@ -547,9 +567,17 @@ func (s *bulkScraper) BulkScrape(ctx context.Context) {
 
 			logger.Infof(">> len(pods): %d", len(pods))
 			grp := errgroup.Group{}
+			// Pods are DS scrapers
 			for _, p := range pods {
 				p := p
+				//metricsCtx, _ := metrics.RevisionContext(p.ObjectMeta.Namespace, metric.Labels[serving.ServiceLabelKey], metric.Labels[serving.ConfigurationLabelKey], metric.Labels[serving.RevisionLabelKey])
 				grp.Go(func() error {
+					startTime := time.Now()
+					var revName string
+					//defer func() {
+					//	bulkScrapeTime := time.Since(startTime)
+					//	pkgmetrics.RecordBatch(metricsCtx, bulkScrapeTimeM.M(float64(bulkScrapeTime.Milliseconds())))
+					//}()
 					// TODO nimak: fix the port here
 					url := fmt.Sprintf("http://%s:%s/", p.Status.PodIP, "8101")
 					fmt.Printf(">> scrape-url: %s\n", url)
@@ -559,12 +587,22 @@ func (s *bulkScraper) BulkScrape(ctx context.Context) {
 						return err
 					}
 					for rev, stats := range revMap {
+						revName = rev
 						var revStats []Stat
 						if v, ok := s.revMap.Load(rev); ok {
 							revStats = v.([]Stat)
 						}
 						revStats = append(revStats, stats...)
 						s.revMap.Store(rev, revStats)
+					}
+					// TODOTARA HARDCODED
+					if revName != "" {
+						svcName := p.ObjectMeta.Labels[serving.ServiceLabelKey]
+						configName := p.ObjectMeta.Labels[serving.ConfigurationLabelKey]
+						//fmt.Printf("\n\n\n\n\n revName is %s, svcName is %s, configName is %s, ns is %s\n\n\n", revName, svcName, configName, p.ObjectMeta.Namespace)
+						metricsCtx, _ := metrics.RevisionContext("default" /* hardcoded */, svcName, configName, revName)
+						bulkScrapeTime := time.Since(startTime)
+						pkgmetrics.RecordBatch(metricsCtx, bulkScrapeTimeM.M(float64(bulkScrapeTime.Milliseconds())))
 					}
 					return nil
 				})
