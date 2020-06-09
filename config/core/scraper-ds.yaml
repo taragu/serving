@@ -75,6 +75,8 @@ spec:
               fieldPath: metadata.namespace
         - name: CONFIG_LOGGING_NAME
           value: config-logging
+        - name: METRICS_DOMAIN
+          value: knative.dev/serving
 
         securityContext:
           allowPrivilegeEscalation: false
@@ -82,6 +84,8 @@ spec:
         ports:
         - name: scraper
           containerPort: 8101
+        - name: metrics
+          containerPort: 9090
 
         readinessProbe: &probe
           httpGet:
