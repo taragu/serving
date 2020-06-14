@@ -103,6 +103,13 @@ func newAutoscaler(
 	} else {
 		pkgmetrics.Record(reporterCtx, panicM.M(0))
 	}
+	maxPanicPods := int32(curC)
+	// Start in panic for initial scale > 1 so that we hold the initial scale for a stable window.
+	if deciderSpec.InitialScale > 1 {
+		pt = time.Now()
+		pkgmetrics.Record(reporterCtx, panicM.M(1))
+		maxPanicPods = deciderSpec.InitialScale
+	}
 
 	return &autoscaler{
 		namespace:    namespace,
@@ -114,7 +121,7 @@ func newAutoscaler(
 		podCounter:  podCounter,
 
 		panicTime:    pt,
-		maxPanicPods: int32(curC),
+		maxPanicPods: maxPanicPods,
 	}
 }
 

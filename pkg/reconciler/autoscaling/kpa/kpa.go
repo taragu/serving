@@ -19,6 +19,7 @@ package kpa
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"go.opencensus.io/stats"
 	"go.uber.org/zap"
@@ -86,7 +87,7 @@ func (c *Reconciler) ReconcileKind(ctx context.Context, pa *pav1alpha1.PodAutosc
 		if _, err = c.ReconcileSKS(ctx, pa, nv1alpha1.SKSOperationModeServe, 0 /*numActivators == all*/); err != nil {
 			return fmt.Errorf("error reconciling SKS: %w", err)
 		}
-		return computeStatus(pa, podCounts{want: scaleUnknown}, logger)
+		return computeStatus(ctx, pa, podCounts{want: scaleUnknown}, logger)
 	}
 
 	pa.Status.MetricsServiceName = sks.Status.PrivateServiceName
@@ -166,7 +167,7 @@ func (c *Reconciler) ReconcileKind(ctx context.Context, pa *pav1alpha1.PodAutosc
 		terminating: terminating,
 	}
 	logger.Infof("Observed pod counts=%#v", pc)
-	return computeStatus(pa, pc, logger)
+	return computeStatus(ctx, pa, pc, logger)
 }
 
 func (c *Reconciler) reconcileDecider(ctx context.Context, pa *pav1alpha1.PodAutoscaler, k8sSvc string) (*scaling.Decider, error) {
@@ -192,14 +193,14 @@ func (c *Reconciler) reconcileDecider(ctx context.Context, pa *pav1alpha1.PodAut
 	return decider, nil
 }
 
-func computeStatus(pa *pav1alpha1.PodAutoscaler, pc podCounts, logger *zap.SugaredLogger) error {
+func computeStatus(ctx context.Context, pa *pav1alpha1.PodAutoscaler, pc podCounts, logger *zap.SugaredLogger) error {
 	pa.Status.DesiredScale, pa.Status.ActualScale = ptr.Int32(int32(pc.want)), ptr.Int32(int32(pc.ready))
 
 	if err := reportMetrics(pa, pc); err != nil {
 		return fmt.Errorf("error reporting metrics: %w", err)
 	}
 
-	computeActiveCondition(pa, pc)
+	computeActiveCondition(ctx, pa, pc)
 	logger.Debugf("PA Status after reconcile: %#v", pa.Status.Status)
 
 	return nil
@@ -239,8 +240,8 @@ func reportMetrics(pa *pav1alpha1.PodAutoscaler, pc podCounts) error {
 //    | -1   | >= min | inactive   | inactive   |
 //    | -1   | >= min | activating | active     |
 //    | -1   | >= min | active     | active     |
-func computeActiveCondition(pa *pav1alpha1.PodAutoscaler, pc podCounts) {
-	minReady := activeThreshold(pa)
+func computeActiveCondition(ctx context.Context, pa *pav1alpha1.PodAutoscaler, pc podCounts) {
+	minReady := activeThreshold(ctx, pa)
 
 	switch {
 	case pc.want == 0:
@@ -267,12 +268,21 @@ func computeActiveCondition(pa *pav1alpha1.PodAutoscaler, pc podCounts) {
 }
 
 // activeThreshold returns the scale required for the pa to be marked Active
-func activeThreshold(pa *pav1alpha1.PodAutoscaler) int {
+func activeThreshold(ctx context.Context, pa *pav1alpha1.PodAutoscaler) int {
+	logger := logging.FromContext(ctx)
 	min, _ := pa.ScaleBounds()
 	if min < 1 {
 		min = 1
 	}
-
+	initialMinReady := resources.GetInitialScale(config.FromContext(ctx).Autoscaler, pa)
+	if !pa.Status.HasBeenActive() {
+		// Ignore initial scale if minScale > initialScale.
+		// TODO(taragu): This also means currently if user sets initial scale == 0, it will be ignore. This is to be fixed in a followup PR.
+		if initialMinReady > min {
+			logger.Debugf("activeThreshold min adjusting from %d to %d because of initial scale", min, initialMinReady)
+		}
+		return int(math.Max(float64(initialMinReady), float64(min)))
+	}
 	return int(min)
 }
 
