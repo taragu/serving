@@ -21,7 +21,7 @@ metadata:
     serving.knative.dev/release: devel
 
 data:
-  enable-daemonset-scraper: "true"
+  enable-daemonset-scraper: "false"
   _example: |
     ################################
     #                              #

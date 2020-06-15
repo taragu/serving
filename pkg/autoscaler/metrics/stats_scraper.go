@@ -72,10 +72,10 @@ var (
 	errNoPodsScraped = errors.New("no pods scraped")
 	errPodsExhausted = errors.New("pods exhausted")
 
-	//scrapeTimeM = stats.Float64(
-	//	"scrape_time",
-	//	"Time to scrape metrics in milliseconds",
-	//	stats.UnitMilliseconds)
+	scrapeTimeM = stats.Float64(
+		"scrape_time",
+		"Time to scrape metrics in milliseconds",
+		stats.UnitMilliseconds)
 	bulkScrapeTimeM = stats.Float64(
 		"bulk_scrape_time",
 		"Time to bulk scrape metrics in milliseconds",
@@ -88,12 +88,12 @@ var (
 
 func init() {
 	if err := view.Register(
-		//&view.View{
-		//	Description: "The time to scrape metrics in milliseconds",
-		//	Measure:     scrapeTimeM,
-		//	Aggregation: view.Distribution(pkgmetrics.Buckets125(1, 100000)...),
-		//	TagKeys:     metrics.CommonRevisionKeys,
-		//},
+		&view.View{
+			Description: "The time to scrape metrics in milliseconds",
+			Measure:     scrapeTimeM,
+			Aggregation: view.Distribution(pkgmetrics.Buckets125(1, 100000)...),
+			TagKeys:     metrics.CommonRevisionKeys,
+		},
 		&view.View{
 			Description: "The time to bulk scrape metrics in milliseconds",
 			Measure:     bulkScrapeTimeM,
@@ -274,11 +274,11 @@ func (s *serviceScraper) Scrape(window time.Duration) (Stat, error) {
 		return emptyStat, nil
 	}
 
-	//startTime := time.Now()
-	//defer func() {
-	//	scrapeTime := time.Since(startTime)
-	//	pkgmetrics.RecordBatch(s.statsCtx, scrapeTimeM.M(float64(scrapeTime.Milliseconds())))
-	//}()
+	startTime := time.Now()
+	defer func() {
+		scrapeTime := time.Since(startTime)
+		pkgmetrics.RecordBatch(s.statsCtx, scrapeTimeM.M(float64(scrapeTime.Milliseconds())))
+	}()
 
 	if s.podsAddressable {
 		stat, err := s.scrapePods(readyPodsCount)
@@ -312,7 +312,7 @@ func (s *serviceScraper) scrapePods(readyPods int) (Stat, error) {
 	}
 
 	frpc := float64(readyPods)
-	sampleSizeF := populationMeanSampleSize(frpc)
+	sampleSizeF := frpc // populationMeanSampleSize(frpc)
 	sampleSize := int(sampleSizeF)
 	results := make(chan Stat, sampleSize)
 

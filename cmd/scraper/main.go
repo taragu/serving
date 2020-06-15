@@ -26,8 +26,6 @@ import (
 	"time"
 
 	"github.com/kelseyhightower/envconfig"
-	ocstats "go.opencensus.io/stats"
-	"go.opencensus.io/stats/view"
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	corev1 "k8s.io/api/core/v1"
@@ -45,36 +43,35 @@ import (
 	"knative.dev/serving/pkg/apis/networking"
 	"knative.dev/serving/pkg/apis/serving"
 	asmetrics "knative.dev/serving/pkg/autoscaler/metrics"
-	servingmetrics "knative.dev/serving/pkg/metrics"
 )
 
 var (
 	logger    *zap.SugaredLogger
 	masterURL = flag.String("master", "", "The address of the Kubernetes API server. "+
 		"Overrides any value in kubeconfig. Only required if out-of-cluster.")
-	kubeconfig  = flag.String("kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
-	scrapeTimeM = ocstats.Float64(
-		"scrape_time",
-		"Time to scrape metrics in milliseconds",
-		ocstats.UnitMilliseconds)
+	kubeconfig = flag.String("kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
+	//scrapeTimeM = ocstats.Float64(
+	//	"scrape_time",
+	//	"Time to scrape metrics in milliseconds",
+	//	ocstats.UnitMilliseconds)
 )
 
 const (
 	reportingPeriod = 1 * time.Second
 )
 
-func init() {
-	if err := view.Register(
-		&view.View{
-			Description: "The time to scrape metrics in milliseconds",
-			Measure:     scrapeTimeM,
-			Aggregation: view.Distribution(metrics.Buckets125(1, 100000)...),
-			TagKeys:     servingmetrics.CommonRevisionKeys,
-		},
-	); err != nil {
-		panic(err)
-	}
-}
+//func init() {
+//	if err := view.Register(
+//		&view.View{
+//			Description: "The time to scrape metrics in milliseconds",
+//			Measure:     scrapeTimeM,
+//			Aggregation: view.Distribution(metrics.Buckets125(1, 100000)...),
+//			TagKeys:     servingmetrics.CommonRevisionKeys,
+//		},
+//	); err != nil {
+//		panic(err)
+//	}
+//}
 
 func buildServer(port string, logger *zap.SugaredLogger, reporter *stats.PrometheusStatsReporter) *http.Server {
 	scraperMux := http.NewServeMux()
@@ -211,8 +208,8 @@ func (s *metricsScraper) pollMetricsData(ctx context.Context, logger *zap.Sugare
 	for _, p := range podList.Items {
 		p := p
 		eg.Go(func() error {
-			startTime := time.Now()
-			metricsCtx, _ := servingmetrics.RevisionContext("default" /* hardcoded */, p.ObjectMeta.Labels[serving.ServiceLabelKey], p.ObjectMeta.Labels[serving.ConfigurationLabelKey], p.ObjectMeta.Labels[serving.RevisionLabelKey])
+			//startTime := time.Now()
+			//metricsCtx, _ := servingmetrics.RevisionContext("default" /* hardcoded */, p.ObjectMeta.Labels[serving.ServiceLabelKey], p.ObjectMeta.Labels[serving.ConfigurationLabelKey], p.ObjectMeta.Labels[serving.RevisionLabelKey])
 			podIP := p.Status.PodIP
 			stat, err := sClient.Scrape(urlFromTarget(podIP))
 			if err != nil {
@@ -238,9 +235,9 @@ func (s *metricsScraper) pollMetricsData(ctx context.Context, logger *zap.Sugare
 				recorder = val.(*stats.PrometheusStatsRecorder)
 			}
 
-			scrapeTime := time.Since(startTime)
-			fmt.Printf("\n\n\n\n scrape time: %v sec\n\n\n", scrapeTime.Seconds())
-			metrics.RecordBatch(metricsCtx, scrapeTimeM.M(float64(scrapeTime.Milliseconds())))
+			//scrapeTime := time.Since(startTime)
+			//fmt.Printf("\n\n\n\n scrape time: %v sec\n\n\n", scrapeTime.Seconds())
+			//metrics.RecordBatch(metricsCtx, scrapeTimeM.M(float64(scrapeTime.Milliseconds())))
 			recorder.Report(
 				stat.AverageConcurrentRequests,
 				stat.AverageProxiedConcurrentRequests,
