@@ -245,7 +245,10 @@ func computeActiveCondition(ctx context.Context, pa *pav1alpha1.PodAutoscaler, p
 
 	switch {
 	case pc.want == 0:
-		if pa.Status.IsActivating() {
+		if resources.GetInitialScale(config.FromContext(ctx).Autoscaler, pa) == 0 && pc.ready == 0 {
+			pa.Status.MarkHasBeenActive()
+			pa.Status.MarkActive()
+		} else if pa.Status.IsActivating() {
 			// We only ever scale to zero while activating if we fail to activate within the progress deadline.
 			pa.Status.MarkInactive("TimedOut", "The target could not be activated.")
 		} else {
@@ -275,11 +278,14 @@ func activeThreshold(ctx context.Context, pa *pav1alpha1.PodAutoscaler) int {
 		min = 1
 	}
 	initialMinReady := resources.GetInitialScale(config.FromContext(ctx).Autoscaler, pa)
-	if !pa.Status.HasBeenActive() {
+	if !pa.Status.HasBeenActive() || (initialMinReady == 0 && min == 1) {
 		// Ignore initial scale if minScale > initialScale.
 		// TODO(taragu): This also means currently if user sets initial scale == 0, it will be ignore. This is to be fixed in a followup PR.
-		if initialMinReady > min {
+		if initialMinReady > min || (initialMinReady == 0 && min == 1) {
 			logger.Debugf("activeThreshold min adjusting from %d to %d because of initial scale", min, initialMinReady)
+		}
+		if initialMinReady == 0 && min == 1 {
+			return 0
 		}
 		return int(math.Max(float64(initialMinReady), float64(min)))
 	}
