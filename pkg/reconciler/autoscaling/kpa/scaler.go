@@ -313,7 +313,6 @@ func (ks *scaler) scale(ctx context.Context, pa *pav1alpha1.PodAutoscaler, sks *
 
 	min, max := pa.ScaleBounds()
 	initialScale := kparesources.GetInitialScale(config.FromContext(ctx).Autoscaler, pa)
-	// TODO(taragu): This also means currently if user sets initial scale == 0, it will be ignore. This is to be fixed in a followup PR.
 	// Don't apply initial scale if already exceeds activation timeout
 	if initialScale > 1 && !pa.Status.HasBeenActive() {
 		// Ignore initial scale if minScale > initialScale
