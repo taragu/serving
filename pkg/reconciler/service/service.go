@@ -105,11 +105,17 @@ func (c *Reconciler) ReconcileKind(ctx context.Context, service *v1.Service) pkg
 		// its desired state, so its conditions are outdated.
 		ss.MarkRouteNotReconciled()
 	} else {
-		// Update our Status based on the state of our underlying Route.
-		ss.PropagateRouteStatus(&route.Status)
+		ready := c.routesReady(config, logger, route)
+		// Only update Route status if traffic is migrated. Otherwise we could mark
+		// RoutesReady true prematurely.
+		if !ready && route.Status.IsReady() {
+			ss.MarkRouteNotYetReady()
+			ss.RouteStatusFields = route.Status.RouteStatusFields
+		} else {
+			// Update our Status based on the state of our underlying Route.
+			ss.PropagateRouteStatus(&route.Status)
+		}
 	}
-
-	c.checkRoutesNotReady(config, logger, route, service)
 	return nil
 }
 
@@ -159,16 +165,9 @@ func (c *Reconciler) route(ctx context.Context, logger *zap.SugaredLogger, servi
 	return route, nil
 }
 
-func (c *Reconciler) checkRoutesNotReady(config *v1.Configuration, logger *zap.SugaredLogger, route *v1.Route, service *v1.Service) {
-	// `manual` is not reconciled.
-	rc := service.Status.GetCondition(v1.ServiceConditionRoutesReady)
-	if rc == nil || rc.Status != corev1.ConditionTrue {
-		return
-	}
-
+func (c *Reconciler) routesReady(config *v1.Configuration, logger *zap.SugaredLogger, route *v1.Route) bool {
 	if len(route.Spec.Traffic) != len(route.Status.Traffic) {
-		service.Status.MarkRouteNotYetReady()
-		return
+		return false
 	}
 
 	want, got := route.Spec.DeepCopy().Traffic, route.Status.DeepCopy().Traffic
@@ -182,8 +181,9 @@ func (c *Reconciler) checkRoutesNotReady(config *v1.Configuration, logger *zap.S
 	ignoreFields := cmpopts.IgnoreFields(v1.TrafficTarget{}, "URL", "LatestRevision")
 	if diff, err := kmp.SafeDiff(got, want, ignoreFields); err != nil || diff != "" {
 		logger.Errorf("Route %s is not yet what we want: %s", route.Name, diff)
-		service.Status.MarkRouteNotYetReady()
+		return false
 	}
+	return true
 }
 
 func (c *Reconciler) createConfiguration(service *v1.Service) (*v1.Configuration, error) {
